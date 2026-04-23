@@ -1,0 +1,29 @@
+version: '3.8'
+
+services:
+    basededatos:
+        image: postgres:16
+        container_name: postgres_rackiq
+        restart: always
+        environment:
+            - POSTGRES_USER=postgres
+            - POSTGRES_PASSWORD=best4ever
+            - POSTGRES_DB=rackiq_db
+        ports:
+            - "5432:5432"
+        volumes:
+        # Lado Izquierdo (Tu carpeta en Windows) : Lado Derecho (Ruta interna del contenedor)
+        - ./database:/var/lib/postgresql/data
+    backend:
+        build: ./backend  # Le dice a Docker que busque el Dockerfile en esta carpeta
+        container_name: fastapi_rackiq
+        restart: always
+        ports:
+        - "8000:8000"
+        volumes:
+            - ./backend:/app:code/app  
+        environment:
+        # FastAPI podrá usar esta URL para conectarse a Postgres
+        - DATABASE_URL=postgresql://postgres:best4ever@basededatos:5432/rackiq_db
+        depends_on:
+        - basededatos # El backend espera a que la base de datos suba primero

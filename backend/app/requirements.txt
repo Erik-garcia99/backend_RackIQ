@@ -1,0 +1,15 @@
+# El framework principal y su servidor web
+fastapi[standard]
+
+# Para conectarte a tu base de datos PostgreSQL
+SQLAlchemy
+psycopg2-binary
+
+# manejar las migraciones de tu base de datos
+alembic
+
+# integrar Supabase 
+supabase
+
+# Para leer tu archivo .env con las contraseñas
+python-dotenv

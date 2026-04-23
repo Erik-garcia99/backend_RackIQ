@@ -1,0 +1,31 @@
+# --- Python (FastAPI) ---
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+env/
+venv/
+ENV/
+.env
+
+# --- Docker ---
+# No subas los datos de la base de datos (se llenan en local)
+database/
+# Archivos temporales de Docker
+.dockerignore
+
+# --- Base de Datos (PostgreSQL) ---
+# Si tu volumen en el compose apunta a una carpeta local, ignórala
+pgdata/
+
+# --- IDEs y Sistema ---
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# --- Archivos temporales de edición (los que vimos en tu 'ls') ---
+*.un~
+*~
+.Dockerfile.un~
+.docker-compose.yml.un~
