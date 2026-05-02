@@ -21,9 +21,10 @@ services:
         ports:
         - "8000:8000"
         volumes:
-            - ./backend:/app:code/app  
+            - ./backend:/code
         environment:
         # FastAPI podrá usar esta URL para conectarse a Postgres
         - DATABASE_URL=postgresql://postgres:best4ever@basededatos:5432/rackiq_db
+        - FIREBASE_CREDENTIALS_PATH=/code/firebase-credentials.json
         depends_on:
         - basededatos # El backend espera a que la base de datos suba primero
