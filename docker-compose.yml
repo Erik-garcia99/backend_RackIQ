@@ -6,25 +6,36 @@ services:
         container_name: postgres_rackiq
         restart: always
         environment:
-            - POSTGRES_USER=postgres
-            - POSTGRES_PASSWORD=best4ever
-            - POSTGRES_DB=rackiq_db
+            - POSTGRES_USER=${POSTGRES_USER:-postgres}
+            - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-best4ever}
+            - POSTGRES_DB=${POSTGRES_DB:-rackiq_db}
         ports:
             - "5432:5432"
         volumes:
-        # Lado Izquierdo (Tu carpeta en Windows) : Lado Derecho (Ruta interna del contenedor)
-        - ./database:/var/lib/postgresql/data
+            - ./database:/var/lib/postgresql/data
+        networks:
+            - rackiq-network
+
     backend:
-        build: ./backend  # Le dice a Docker que busque el Dockerfile en esta carpeta
+        build: ./backend
         container_name: fastapi_rackiq
         restart: always
         ports:
-        - "8000:8000"
+            - "8000:8000"
         volumes:
             - ./backend:/code
         environment:
-        # FastAPI podrá usar esta URL para conectarse a Postgres
-        - DATABASE_URL=postgresql://postgres:best4ever@basededatos:5432/rackiq_db
-        - FIREBASE_CREDENTIALS_PATH=/code/firebase-credentials.json
+            - DATABASE_URL=${DATABASE_URL:-postgresql://postgres:best4ever@basededatos:5432/rackiq_db}
+            - FIREBASE_CREDENTIALS_PATH=/code/firebase-credentials.json
+            - SECRET_KEY=${SECRET_KEY:-dev-key-change-in-production}
+            - ENVIRONMENT=${ENVIRONMENT:-development}
+            - DEBUG=${DEBUG:-True}
         depends_on:
-        - basededatos # El backend espera a que la base de datos suba primero
+            - basededatos
+        networks:
+            - rackiq-network
+
+networks:
+    rackiq-network:
+        driver: bridge
+

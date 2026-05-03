@@ -2,15 +2,15 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.api.v1.router import api_router
-from app.services.firebase_service import send_push_notification  # Inicializa Firebase
 
 app = FastAPI(title=settings.PROJECT_NAME)
 
+# Configuración segura de CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # En prod cambia esto por tu dominio
+    allow_origins=settings.ALLOWED_ORIGINS if not settings.DEBUG else ["*"],
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH"],
     allow_headers=["*"],
 )
 
@@ -21,5 +21,5 @@ def health_check():
     return {
         "status": "ok", 
         "service": "RackIQ API",
-        "firebase": "initialized"
+        "environment": settings.ENVIRONMENT
     }
