@@ -12,6 +12,20 @@ class Settings(BaseSettings):
     API_PREFIX: str = os.getenv("API_PREFIX", "/api/v1")
     PROJECT_NAME: str = os.getenv("PROJECT_NAME", "RackIQ API")
     
+    # Supabase
+    SUPABASE_URL: str = os.getenv(
+        "SUPABASE_URL",
+        "https://vrmjvnempqsnkiydsoxc.supabase.co"
+    )
+    SUPABASE_KEY: str = os.getenv(
+        "SUPABASE_KEY",
+        "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZybWp2bmVtcHFzbmtpeWRzb3hjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc1ODkyNjQsImV4cCI6MjA5MzE2NTI2NH0.tGxNamm7mTlrBsfjIbMecW7qeaDFsjszyHMDtt8LrBA"
+    )
+    SUPABASE_SERVICE_ROLE_KEY: str = os.getenv(
+        "SUPABASE_SERVICE_ROLE_KEY",
+        "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZybWp2bmVtcHFzbmtpeWRzb3hjIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NzU4OTI2NCwiZXhwIjoyMDkzMTY1MjY0fQ.o9tWI7WEV3bo0Ye6lgIxWuKK-Qr06CCIdJJ5wTybiNk"
+    )
+    
     # Firebase
     FIREBASE_CREDENTIALS_PATH: str = os.getenv(
         "FIREBASE_CREDENTIALS_PATH",
