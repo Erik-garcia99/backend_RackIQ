@@ -2,6 +2,18 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.api.v1.router import api_router
+# Importar modelos para registrarlos en SQLAlchemy
+from app.models import (
+    Base,
+    Organization,
+    OrganizationToken,
+    Branch,
+    User,
+    Product,
+    InventoryMovement,
+    Sale,
+    SaleItem,
+)
 
 app = FastAPI(title=settings.PROJECT_NAME)
 

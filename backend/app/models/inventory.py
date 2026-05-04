@@ -1,9 +1,13 @@
 import uuid
+from typing import TYPE_CHECKING
 from sqlalchemy import Column, Text, Integer, TIMESTAMP, ForeignKey, func, Enum
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from app.models.base import Base
 from enum import Enum as PyEnum
+
+if TYPE_CHECKING:
+    from app.models.product import Product
 
 class MovementType(str, PyEnum):
     IN = "in"  # Entrada
@@ -24,5 +28,5 @@ class InventoryMovement(Base):
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
     # Relationships
-    product = relationship("Product", back_populates="inventory_movements")
+    product = relationship("Product", back_populates="inventory_movements", foreign_keys="InventoryMovement.product_id")
     branch = relationship("Branch", backref="inventory_movements")

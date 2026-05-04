@@ -1,8 +1,13 @@
 import uuid
+from typing import TYPE_CHECKING
 from sqlalchemy import Column, Text, Float, Boolean, TIMESTAMP, ForeignKey, Integer, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from app.models.base import Base
+
+if TYPE_CHECKING:
+    from app.models.inventory import InventoryMovement
+    from app.models.sale import SaleItem
 
 class Product(Base):
     __tablename__ = "product"
@@ -28,5 +33,5 @@ class Product(Base):
     # Relationships
     branch = relationship("Branch", backref="products")
     organization = relationship("Organization", backref="products")
-    inventory_movements = relationship("InventoryMovement", back_populates="product", cascade="all, delete-orphan")
-    sale_items = relationship("SaleItem", back_populates="product", cascade="all, delete-orphan")
+    inventory_movements = relationship("InventoryMovement", back_populates="product", cascade="all, delete-orphan", foreign_keys="InventoryMovement.product_id")
+    sale_items = relationship("SaleItem", back_populates="product", cascade="all, delete-orphan", foreign_keys="SaleItem.product_id")

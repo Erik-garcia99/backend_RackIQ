@@ -3,3 +3,6 @@ from app.models.organization import Organization
 from app.models.organization_token import OrganizationToken
 from app.models.branch import Branch
 from app.models.user import User
+from app.models.product import Product
+from app.models.inventory import InventoryMovement
+from app.models.sale import Sale, SaleItem

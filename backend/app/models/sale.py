@@ -1,8 +1,12 @@
 import uuid
+from typing import TYPE_CHECKING
 from sqlalchemy import Column, Text, Float, Integer, TIMESTAMP, ForeignKey, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from app.models.base import Base
+
+if TYPE_CHECKING:
+    from app.models.product import Product
 
 class Sale(Base):
     __tablename__ = "sale"
@@ -25,7 +29,7 @@ class Sale(Base):
     # Relationships
     branch = relationship("Branch", backref="sales")
     organization = relationship("Organization", backref="sales")
-    items = relationship("SaleItem", back_populates="sale", cascade="all, delete-orphan")
+    items = relationship("SaleItem", back_populates="sale", cascade="all, delete-orphan", foreign_keys="SaleItem.sale_id")
 
 class SaleItem(Base):
     __tablename__ = "sale_item"
@@ -39,5 +43,5 @@ class SaleItem(Base):
     subtotal = Column(Float, nullable=False)
 
     # Relationships
-    sale = relationship("Sale", back_populates="items")
-    product = relationship("Product", back_populates="sale_items")
+    sale = relationship("Sale", back_populates="items", foreign_keys="SaleItem.sale_id")
+    product = relationship("Product", back_populates="sale_items", foreign_keys="SaleItem.product_id")
