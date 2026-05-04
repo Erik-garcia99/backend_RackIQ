@@ -9,7 +9,6 @@ class User(Base):
     id              = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     organization_id = Column(UUID(as_uuid=True), ForeignKey("organization.id", ondelete="CASCADE"), nullable=False)
     branch_id       = Column(UUID(as_uuid=True), ForeignKey("branch.id", ondelete="SET NULL"), nullable=True)
-    supervisor_id   = Column(UUID(as_uuid=True), ForeignKey("user.id", ondelete="SET NULL"), nullable=True)
     email           = Column(Text, nullable=False, unique=True)
     name            = Column(Text, nullable=False)
     role            = Column(Text, nullable=False)
