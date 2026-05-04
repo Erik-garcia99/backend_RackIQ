@@ -1,6 +1,7 @@
 import uuid
 from sqlalchemy import Column, Text, Boolean, TIMESTAMP, ForeignKey, func
 from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.orm import relationship
 from app.models.base import Base
 
 class User(Base):
@@ -15,4 +16,8 @@ class User(Base):
     password_hash   = Column(Text, nullable=True)
     push_token      = Column(Text, nullable=True)
     account_status  = Column(Text, nullable=False, default="active")
+    supervisor_id   = Column(UUID(as_uuid=True), ForeignKey("user.id", ondelete="SET NULL"), nullable=True)
     created_at      = Column(TIMESTAMP(timezone=True), server_default=func.now())
+    
+    # Relación para acceder al supervisor
+    supervisor = relationship("User", remote_side=[id], foreign_keys=[supervisor_id])

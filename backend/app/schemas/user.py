@@ -9,7 +9,7 @@ class UserResponse(BaseModel):
     role: str
     account_status: str
     supervisor_id: Optional[UUID] = None
-    supervisor_name: Optional[str] = None  # Nombre del supervisor si existe
+    supervisor_name: Optional[str] = None
     
     class Config:
         from_attributes = True

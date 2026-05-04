@@ -15,16 +15,16 @@ router = APIRouter(prefix="/users", tags=["users"])
 @router.get("/me", response_model=UserResponse)
 def get_current_user_profile(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """
-    Obtiene el perfil del usuario actual con información del supervisor.
+    Obtiene el perfil del usuario actual.
     """
-    # Obtener el nombre del supervisor si existe
+    # Obtener nombre del supervisor si existe
     supervisor_name = None
     if current_user.supervisor_id:
         supervisor = db.query(User).filter(User.id == current_user.supervisor_id).first()
         if supervisor:
             supervisor_name = supervisor.name
     
-    # Crear respuesta manualmente para incluir supervisor_name
+    # Crear respuesta con datos del usuario actual
     user_data = {
         "id": current_user.id,
         "name": current_user.name,
@@ -32,7 +32,7 @@ def get_current_user_profile(db: Session = Depends(get_db), current_user: User =
         "role": current_user.role,
         "account_status": current_user.account_status,
         "supervisor_id": current_user.supervisor_id,
-        "supervisor_name": supervisor_name
+        "supervisor_name": supervisor_name,
     }
     
     return user_data
@@ -41,18 +41,24 @@ def get_current_user_profile(db: Session = Depends(get_db), current_user: User =
 @router.get("/my-team", response_model=list[UserResponse])
 def get_my_team(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """
-    Obtiene todos los empleados bajo la supervisión del usuario actual.
-    Solo accesible para usuarios con rol 'manager', 'admin', 'owner' o 'superadmin'.
+    Obtiene todos los empleados de la organización.
+    Solo accesible para usuarios con rol 'admin', 'owner', 'superuser' o 'rrhh'.
     """
-    # Verificar permisos
-    if current_user.role not in ["manager", "admin", "owner", "superadmin"]:
+    # Verificar permisos: solo roles específicos
+    if current_user.role not in ["admin", "owner", "superuser", "rrhh"]:
         raise HTTPException(status_code=403, detail="No tienes permiso para ver el equipo")
     
-    # Obtener todos los empleados con este supervisor
+    # Obtener todos los empleados de la misma organización
     employees = db.query(User).filter(
-        User.supervisor_id == current_user.id,
         User.organization_id == current_user.organization_id
     ).all()
+    
+    # Enriquecer datos con nombre del supervisor
+    for employee in employees:
+        if employee.supervisor_id:
+            supervisor = db.query(User).filter(User.id == employee.supervisor_id).first()
+            if supervisor:
+                employee.supervisor_name = supervisor.name
     
     return employees
 
@@ -66,7 +72,7 @@ def update_user_status(
 ):
     """
     Actualiza el estado de un empleado.
-    Solo el supervisor o un admin pueden hacer esto.
+    Solo un admin, owner o superadmin pueden hacer esto.
     Envía notificación push al dispositivo del empleado.
     """
     # Obtener el usuario a actualizar
@@ -74,11 +80,10 @@ def update_user_status(
     if not target_user:
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
     
-    # Verificar permisos: solo supervisor, admin, owner o superadmin
-    is_supervisor = target_user.supervisor_id == current_user.id
+    # Verificar permisos: solo admin, owner o superadmin
     is_admin = current_user.role in ["admin", "owner", "superadmin"]
     
-    if not (is_supervisor or is_admin):
+    if not is_admin:
         raise HTTPException(status_code=403, detail="No tienes permiso para actualizar este usuario")
     
     # Validar estado
@@ -87,7 +92,6 @@ def update_user_status(
         raise HTTPException(status_code=400, detail=f"Estado no válido. Debe ser uno de: {valid_statuses}")
     
     # Actualizar estado
-    old_status = target_user.account_status
     target_user.account_status = body.status
     db.commit()
     db.refresh(target_user)
@@ -108,6 +112,7 @@ def update_user_status(
     
     # Enviar notificación push si el usuario tiene token
     if target_user.push_token:
+        from datetime import datetime
         send_push_notification(
             push_token=target_user.push_token,
             title=notification_titles.get(body.status, "Actualización de Estado"),
@@ -115,7 +120,7 @@ def update_user_status(
             data={
                 "action": "status_changed",
                 "status": body.status,
-                "timestamp": str(db.query(User).filter(User.id == current_user.id).first().created_at)
+                "timestamp": datetime.utcnow().isoformat()
             }
         )
     
@@ -136,23 +141,23 @@ def assign_supervisor(
 ):
     """
     Asigna un supervisor a un empleado.
-    Solo admin u owner pueden hacer esto.
+    Solo usuarios con rol 'rrhh', 'owner' o 'superuser' pueden hacer esto.
     """
-    # Verificar permisos
-    if current_user.role not in ["admin", "owner", "superadmin"]:
+    # Verificar permisos: solo rrhh, owner, superuser
+    if current_user.role not in ["rrhh", "owner", "superuser"]:
         raise HTTPException(status_code=403, detail="No tienes permiso para asignar supervisores")
     
-    # Obtener el usuario a actualizar
+    # Obtener el empleado a asignar
     target_user = db.query(User).filter(User.id == user_id).first()
     if not target_user:
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
     
-    # Verificar que el supervisor existe
+    # Validar que el supervisor existe
     supervisor = db.query(User).filter(User.id == body.supervisor_id).first()
     if not supervisor:
         raise HTTPException(status_code=404, detail="Supervisor no encontrado")
     
-    # Verificar que el supervisor y el empleado están en la misma organización
+    # Validar que el supervisor y el empleado están en la misma organización
     if supervisor.organization_id != target_user.organization_id:
         raise HTTPException(status_code=400, detail="El supervisor debe estar en la misma organización")
     
@@ -161,4 +166,28 @@ def assign_supervisor(
     db.commit()
     db.refresh(target_user)
     
-    return target_user
+    # Obtener nombre del supervisor para la respuesta
+    supervisor_name = supervisor.name if supervisor else None
+    
+    # Enviar notificación push si el usuario tiene token
+    if target_user.push_token:
+        send_push_notification(
+            push_token=target_user.push_token,
+            title="Nuevo Supervisor Asignado",
+            body=f"Tu supervisor es ahora {supervisor_name}",
+            data={
+                "action": "supervisor_assigned",
+                "supervisor_id": str(body.supervisor_id),
+                "supervisor_name": supervisor_name
+            }
+        )
+    
+    return {
+        "id": target_user.id,
+        "name": target_user.name,
+        "email": target_user.email,
+        "role": target_user.role,
+        "account_status": target_user.account_status,
+        "supervisor_id": target_user.supervisor_id,
+        "supervisor_name": supervisor_name,
+    }
