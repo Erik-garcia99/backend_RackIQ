@@ -13,8 +13,8 @@ class Settings(BaseSettings):
     PROJECT_NAME: str = os.getenv("PROJECT_NAME", "RackIQ API")
     
     # Supabase
-    SUPABASE_URL: str = os.getenv(
-        "SUPABASE_URL",
+    SUPABASE_URL_RQ: str = os.getenv(
+        "SUPABASE_URL_RQ",
         "https://vrmjvnempqsnkiydsoxc.supabase.co"
     )
     SUPABASE_KEY: str = os.getenv(
@@ -30,6 +30,10 @@ class Settings(BaseSettings):
     FIREBASE_CREDENTIALS_PATH: str = os.getenv(
         "FIREBASE_CREDENTIALS_PATH",
         "./firebase-credentials.json"
+    )
+    FIREBASE_CREDENTIALS_JSON: str = os.getenv(
+        "FIREBASE_CREDENTIALS_JSON",
+        ""
     )
     
     # JWT

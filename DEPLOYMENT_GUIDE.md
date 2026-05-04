@@ -58,7 +58,7 @@ Las siguientes carpetas y archivos están en `.gitignore`:
 ┌─────────────────────────────────────────────────────┐
 │              REPOSITORIO GIT (GITHUB)               │
 │  .gitignore previene que sientas credenciales      │
-│  .env.example muestra la estructura (SIN valores)  │
+│  .env.backend.example muestra la estructura (SIN valores)  │
 └─────────────────────────────────────────────────────┘
                           ↓
 ┌─────────────────────────────────────────────────────┐
@@ -99,8 +99,8 @@ git status
 ### 3.1 Crear `.env` local (NO lo subas a Git)
 
 ```bash
-# Copia .env.example
-cp .env.example .env
+# Copia .env.backend.example
+cp .env.backend.example .env
 
 # Edita con tus valores reales
 nano .env
@@ -208,53 +208,55 @@ En el Dashboard de Railway, ir al Backend Service y agregar estas variables:
 **Backend Service - Variables de Entorno:**
 ```
 DATABASE_URL = postgresql://postgres:[PASSWORD]@db.[SUPABASE_ID].supabase.co:5432/postgres
-FIREBASE_CREDENTIALS_PATH = ./firebase-credentials.json
+FIREBASE_CREDENTIALS_JSON = {"type":"service_account","project_id":"..."}
 SECRET_KEY = (tu clave generada)
 ALGORITHM = HS256
 ENVIRONMENT = production
 DEBUG = False
-ALLOWED_ORIGINS = https://tu-dominio.com,https://www.tu-dominio.com
+ALLOWED_ORIGINS = https://backendrackiq-production.up.railway.app
 ```
+
+⚠️ **Para FIREBASE_CREDENTIALS_JSON:**
+- Copia TODO el JSON desde Firebase Console (sin saltos de línea)
+- Pégalo como una sola línea en Railway
 
 ⚠️ **IMPORTANTE**: 
 - El `DATABASE_URL` viene de Supabase, NO de Railway
 - No copies/pegues en el navegador si puedes
 - Copia desde Supabase Settings → Database → Connection strings
+- **ALLOWED_ORIGINS** debe incluir tu dominio de Railway para que el frontend pueda hacer peticiones
 
 ## 5. PASO 4: CONFIGURAR FIREBASE EN RAILWAY
 
-Firebase tiene 2 opciones:
+Firebase soporta 2 formas de cargar credenciales:
 
-### Opción A: Credenciales como Variable de Entorno (Recomendado)
+### Opción A: Credenciales como Variable de Entorno JSON (Recomendado para Railway)
 
-1. En Firebase Console, obtén el JSON de cuenta de servicio
-2. En Railway, crea una variable con el contenido completo
+**En Firebase Console:**
+1. Ve a **Configuración del proyecto** (⚙️) → **Cuentas de servicio**
+2. Click en **"Generar nueva clave privada"**
+3. Descarga el archivo JSON
 
-```
-FIREBASE_CREDENTIALS_JSON = {"type":"service_account",...}
-```
+**En Railway:**
+1. Abre tu Backend Service en el Dashboard
+2. Ve a **Variables**
+3. Agrega una nueva variable:
+   - **Nombre:** `FIREBASE_CREDENTIALS_JSON`
+   - **Valor:** Copia TODO el contenido del JSON descargado (sin saltos de línea)
 
-3. En `backend/app/services/firebase_service.py`:
+**En el código FastAPI:**
+El código ya está configurado para leer esta variable automáticamente. No necesitas cambios.
 
-```python
-import json
-import os
-from firebase_admin import initialize_app, credentials
+### Opción B: Credenciales desde Archivo Local (Para Desarrollo)
 
-firebase_json_str = os.getenv("FIREBASE_CREDENTIALS_JSON")
-if firebase_json_str:
-    firebase_dict = json.loads(firebase_json_str)
-    cred = credentials.Certificate(firebase_dict)
-else:
-    cred = credentials.Certificate(os.getenv("FIREBASE_CREDENTIALS_PATH", "./firebase-credentials.json"))
-
-firebase_app = initialize_app(cred)
-```
-
-### Opción B: Subir Archivo (Menos Seguro)
-
-1. En el build de Railway, agregar credenciales durante deploy
-2. **No es recomendado** - mejor usar env variables
+Si ejecutas localmente:
+1. Descarga `firebase-credentials.json` desde Firebase Console
+2. Cópialo a la carpeta `backend_RackIQ/backend/`
+3. Tu archivo `.env` local puede usar:
+   ```
+   FIREBASE_CREDENTIALS_PATH=./firebase-credentials.json
+   ```
+4. O dejar vacía y que use el default
 
 ## 6. PASO 5: VERIFICAR CONEXIÓN A SUPABASE
 
@@ -330,7 +332,7 @@ Tu base de datos ya está en Supabase. No necesitas nada adicional.
 
 ### ✅ HAZLO
 
-- ✅ Usa `.env.example` como plantilla (sin valores reales)
+- ✅ Usa `.env.backend.example` como plantilla (sin valores reales)
 - ✅ Agrega todos los archivos sensibles a `.gitignore`
 - ✅ Genera claves secretas aleatorias por entorno
 - ✅ Usa variables de entorno para TODO (DATABASE_URL, KEYS, etc.)

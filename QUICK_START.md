@@ -27,7 +27,7 @@ docker-compose  ────────┐ │    │
 - [ ] Crear las tablas/migraciones en Supabase (si las tienes, ejecutar SQL)
 
 ### PASO 1: Limpieza Local (5 minutos)
-- [ ] Crear `.env` local con tus valores reales (copia de `.env.example`)
+- [ ] Crear `.env` local con tus valores reales (copia de `.env.backend.example`)
 - [ ] Poner `DATABASE_URL` de Supabase en `.env` (para testing)
 - [ ] Descargar `firebase-credentials.json` desde Firebase Console
 - [ ] Verificar que `.gitignore` existe y contiene los archivos sensibles
@@ -89,7 +89,7 @@ ALLOWED_ORIGINS = https://tu-frontend.com,https://tu-app.railway.app
 2. **`firebase-credentials.json` NUNCA en Git** - está en `.gitignore`
 3. **`docker-compose.yml` SÍ va en Git** - es para desarrollo local
 4. **Verifica:** `git ls-files | grep firebase` = vacío ✅
-5. **Verifica:** `git ls-files | grep ".env"` = vacío (menos .env.example) ✅
+5. **Verifica:** `git ls-files | grep ".env"` = vacío (menos .env.backend.example) ✅
 
 ---
 

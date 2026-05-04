@@ -1,6 +1,6 @@
 # ============ CREDENCIALES Y ARCHIVOS SENSIBLES ============
 .env
-.env.example
+.env.backend.example
 .env.local
 .env.*.local
 firebase-credentials.json

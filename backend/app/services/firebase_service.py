@@ -4,8 +4,32 @@ import os
 import json
 from typing import Optional
 
-# Ruta al archivo de credenciales de Firebase
-FIREBASE_CREDENTIALS_PATH = os.getenv("FIREBASE_CREDENTIALS_PATH", "firebase-credentials.json")
+# Obtener credenciales de Firebase (desde variable JSON o archivo)
+def _get_firebase_credentials():
+    """Carga credenciales de Firebase desde variable de entorno JSON o archivo"""
+    
+    # Opción 1: Variable de entorno JSON (preferida para Railway)
+    firebase_json = os.getenv("FIREBASE_CREDENTIALS_JSON", "")
+    if firebase_json.strip():
+        try:
+            creds_dict = json.loads(firebase_json)
+            return credentials.Certificate(creds_dict)
+        except json.JSONDecodeError as e:
+            print(f"⚠️  Error parsing FIREBASE_CREDENTIALS_JSON: {e}")
+            raise
+    
+    # Opción 2: Archivo local (para desarrollo)
+    firebase_path = os.getenv("FIREBASE_CREDENTIALS_PATH", "firebase-credentials.json")
+    if os.path.exists(firebase_path):
+        try:
+            return credentials.Certificate(firebase_path)
+        except FileNotFoundError:
+            print(f"⚠️  Firebase credentials file not found at {firebase_path}")
+            raise
+    
+    raise FileNotFoundError(
+        "Firebase credentials not found. Set FIREBASE_CREDENTIALS_JSON env var or place firebase-credentials.json file"
+    )
 
 # Inicializar Firebase (solo si no está inicializado)
 try:
@@ -13,11 +37,9 @@ try:
 except ValueError:
     # La app no está inicializada
     try:
-        cred = credentials.Certificate(FIREBASE_CREDENTIALS_PATH)
+        cred = _get_firebase_credentials()
         firebase_admin.initialize_app(cred)
         print("✅ Firebase initialized successfully")
-    except FileNotFoundError:
-        print(f"⚠️  Firebase credentials not found at {FIREBASE_CREDENTIALS_PATH}")
     except Exception as e:
         print(f"⚠️  Error initializing Firebase: {e}")
 
