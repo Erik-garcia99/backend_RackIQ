@@ -14,8 +14,12 @@ router = APIRouter(prefix="/tokens", tags=["tokens"])
 
 @router.post("/validate", response_model=TokenValidateResponse)
 def validate_token(body: TokenValidateRequest, db: Session = Depends(get_db)):
+    # Buscar por label (más amigable) o por token (UUID)
     record = db.query(OrganizationToken).filter(
-        OrganizationToken.token == body.token,
+        (
+            (OrganizationToken.label == body.token) |
+            (OrganizationToken.token == body.token)
+        ),
         OrganizationToken.is_active == True
     ).first()
 
