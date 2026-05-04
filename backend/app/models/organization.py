@@ -11,7 +11,7 @@ class Organization(Base):
     name = Column(Text, nullable=False)
     slug = Column(Text, nullable=False, unique=True)
     plan_type = Column(Text, nullable=False)
-    created_at = Column(TIMESTAMP, server_default=func.now())
+    created_ad = Column(TIMESTAMP, server_default=func.now())
 
     branches = relationship("Branch", back_populates="organization")
     tokens = relationship("OrganizationToken", back_populates="organization")
