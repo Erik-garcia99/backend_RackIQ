@@ -14,6 +14,7 @@ class User(Base):
     name            = Column(Text, nullable=False)
     role            = Column(Text, nullable=False)
     password_hash   = Column(Text, nullable=True)
+    phone_number    = Column(Text, nullable=True)
     push_token      = Column(Text, nullable=True)
     account_status  = Column(Text, nullable=False, default="active")
     supervisor_id   = Column(UUID(as_uuid=True), ForeignKey("user.id", ondelete="SET NULL"), nullable=True)

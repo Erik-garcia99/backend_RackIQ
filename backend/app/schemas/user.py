@@ -7,6 +7,7 @@ class UserResponse(BaseModel):
     name: str
     email: str
     role: str
+    phone_number: Optional[str] = None
     account_status: str
     supervisor_id: Optional[UUID] = None
     supervisor_name: Optional[str] = None
@@ -25,3 +26,16 @@ class UpdateUserStatusResponse(BaseModel):
 
 class AssignSupervisorRequest(BaseModel):
     supervisor_id: UUID
+
+class UpdateProfileRequest(BaseModel):
+    email: Optional[str] = None
+    phone_number: Optional[str] = None
+    current_password: str  # Requerido para cambiar contraseña
+    new_password: Optional[str] = None  # Solo se cambia si se proporciona
+
+class UpdateProfileResponse(BaseModel):
+    id: UUID
+    name: str
+    email: str
+    phone_number: Optional[str] = None
+    message: str

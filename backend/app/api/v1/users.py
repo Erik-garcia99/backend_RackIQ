@@ -4,9 +4,10 @@ from uuid import UUID
 from app.db.database import get_db
 from app.models.user import User
 from app.schemas.user import (
-    UserResponse, UpdateUserStatusRequest, UpdateUserStatusResponse, AssignSupervisorRequest
+    UserResponse, UpdateUserStatusRequest, UpdateUserStatusResponse, AssignSupervisorRequest,
+    UpdateProfileRequest, UpdateProfileResponse
 )
-from app.core.security import get_current_user
+from app.core.security import get_current_user, hash_password, verify_password
 from app.services.firebase_service import send_push_notification
 
 router = APIRouter(prefix="/users", tags=["users"])
@@ -30,6 +31,7 @@ def get_current_user_profile(db: Session = Depends(get_db), current_user: User =
         "name": current_user.name,
         "email": current_user.email,
         "role": current_user.role,
+        "phone_number": current_user.phone_number,
         "account_status": current_user.account_status,
         "supervisor_id": current_user.supervisor_id,
         "supervisor_name": supervisor_name,
@@ -191,3 +193,48 @@ def assign_supervisor(
         "supervisor_id": target_user.supervisor_id,
         "supervisor_name": supervisor_name,
     }
+
+
+@router.put("/me/profile", response_model=UpdateProfileResponse)
+def update_user_profile(
+    body: UpdateProfileRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Actualiza el perfil del usuario actual (correo, teléfono, contraseña).
+    Requiere la contraseña actual para cambios de contraseña.
+    """
+    # Verificar contraseña actual
+    if not verify_password(body.current_password, current_user.password_hash):
+        raise HTTPException(status_code=401, detail="Contraseña actual incorrecta")
+    
+    # Actualizar email si se proporciona
+    if body.email:
+        # Verificar que el email no esté en uso
+        existing_user = db.query(User).filter(
+            User.email == body.email, 
+            User.id != current_user.id
+        ).first()
+        if existing_user:
+            raise HTTPException(status_code=400, detail="El correo ya está en uso")
+        current_user.email = body.email
+    
+    # Actualizar teléfono si se proporciona
+    if body.phone_number:
+        current_user.phone_number = body.phone_number
+    
+    # Actualizar contraseña si se proporciona
+    if body.new_password:
+        current_user.password_hash = hash_password(body.new_password)
+    
+    db.commit()
+    db.refresh(current_user)
+    
+    return UpdateProfileResponse(
+        id=current_user.id,
+        name=current_user.name,
+        email=current_user.email,
+        phone_number=current_user.phone_number,
+        message="Perfil actualizado exitosamente"
+    )
