@@ -56,7 +56,7 @@ def register(body: RegisterRequest, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="Este correo ya está registrado")
 
     # 2. Buscar el token de organización
-    org_token = get_token_by_code(db, body.branch_code)
+    org_token = get_token_by_code(db, body.organization_token)
     if not org_token:
         raise HTTPException(status_code=404, detail="Token de organización no válido o inactivo")
 

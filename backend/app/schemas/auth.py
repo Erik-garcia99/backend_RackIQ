@@ -20,7 +20,7 @@ class RegisterRequest(BaseModel):
     full_name: str
     email: str
     password: str
-    branch_code: str             # El código RAC-XXX-XXXX de la sucursal
+    organization_token: str      # Token de invitación de la organización
     push_token: Optional[str] = None  # Token FCM del dispositivo
 
 class RegisterResponse(BaseModel):
