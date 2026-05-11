@@ -1,6 +1,7 @@
 from pydantic import BaseModel
 from uuid import UUID
 from typing import Optional
+from datetime import datetime
 
 
 class OrganizationCreateRequest(BaseModel):
@@ -14,7 +15,7 @@ class OrganizationResponse(BaseModel):
     name: str
     slug: str
     plan_type: str
-    created_ad: Optional[str] = None
+    created_ad: Optional[datetime] = None
 
     class Config:
         from_attributes = True
