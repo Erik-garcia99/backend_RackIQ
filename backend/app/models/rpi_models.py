@@ -68,8 +68,6 @@ class Shelf(Base):
     is_active = Column(Boolean, default=True)
 
     gateway = relationship("Gateway", back_populates="shelves")
-    branch = relationship("Branch")
-    product = relationship("Product")
     esp32_node = relationship("Esp32Node", back_populates="shelves")
     weight_readings = relationship("WeightReading", back_populates="shelf")
     stock_events = relationship("StockEvent", back_populates="shelf")
@@ -138,11 +136,9 @@ class Alert(Base):
     metadata = Column(Text)  # JSON data
     triggered_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
     resolved_at = Column(TIMESTAMP(timezone=True))
-    resolved_by = Column(UUID(as_uuid=True), ForeignKey("user.id", ondelete="SET NULL"), nullable=True)
+    resolved_by = Column(UUID(as_uuid=True), nullable=True)  # User ID who resolved it
 
     shelf = relationship("Shelf", back_populates="alerts")
-    branch = relationship("Branch")
-    resolved_by_user = relationship("User")
 
 
 class InfluxConfig(Base):
