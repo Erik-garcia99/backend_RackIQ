@@ -133,7 +133,7 @@ class Alert(Base):
     branch_id = Column(UUID(as_uuid=True), ForeignKey("branch.id", ondelete="CASCADE"), nullable=False)
     alert_type = Column(Text, nullable=False)  # low_stock, theft, anomaly, offline
     status = Column(Text, default="open")  # open, acknowledged, resolved
-    metadata = Column(Text)  # JSON data
+    alert_data = Column(Text)  # JSON data
     triggered_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
     resolved_at = Column(TIMESTAMP(timezone=True))
     resolved_by = Column(UUID(as_uuid=True), nullable=True)  # User ID who resolved it
