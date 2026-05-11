@@ -17,3 +17,4 @@ class Branch(Base):
     branch_code = Column(Text, unique=True)
 
     organization = relationship("Organization", back_populates="branches")
+    gateway = relationship("Gateway", back_populates="branch", uselist=False)

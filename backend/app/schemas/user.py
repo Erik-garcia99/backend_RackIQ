@@ -27,6 +27,9 @@ class UpdateUserStatusResponse(BaseModel):
 class AssignSupervisorRequest(BaseModel):
     supervisor_id: UUID
 
+class AssignBranchRequest(BaseModel):
+    branch_id: UUID
+
 class UpdateProfileRequest(BaseModel):
     email: Optional[str] = None
     phone_number: Optional[str] = None

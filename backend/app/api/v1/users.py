@@ -1,11 +1,13 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from uuid import UUID
+from datetime import datetime
 from app.db.database import get_db
 from app.models.user import User
+from app.models.branch import Branch
 from app.schemas.user import (
     UserResponse, UpdateUserStatusRequest, UpdateUserStatusResponse, AssignSupervisorRequest,
-    UpdateProfileRequest, UpdateProfileResponse
+    AssignBranchRequest, UpdateProfileRequest, UpdateProfileResponse
 )
 from app.core.security import get_current_user, hash_password, verify_password
 from app.services.firebase_service import send_push_notification
@@ -181,6 +183,71 @@ def assign_supervisor(
                 "action": "supervisor_assigned",
                 "supervisor_id": str(body.supervisor_id),
                 "supervisor_name": supervisor_name
+            }
+        )
+    
+    return {
+        "id": target_user.id,
+        "name": target_user.name,
+        "email": target_user.email,
+        "role": target_user.role,
+        "account_status": target_user.account_status,
+        "supervisor_id": target_user.supervisor_id,
+        "supervisor_name": supervisor_name,
+    }
+
+
+@router.put("/{user_id}/assign-branch", response_model=UserResponse)
+def assign_branch(
+    user_id: UUID,
+    body: AssignBranchRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Asigna una sucursal a un empleado.
+    Solo usuarios con rol 'rrhh', 'owner' o 'superuser' pueden hacer esto.
+    """
+    # Verificar permisos: solo rrhh, owner, superuser
+    if current_user.role not in ["rrhh", "owner", "superuser"]:
+        raise HTTPException(status_code=403, detail="No tienes permiso para asignar sucursales")
+    
+    # Obtener el empleado a asignar
+    target_user = db.query(User).filter(User.id == user_id).first()
+    if not target_user:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    
+    # Validar que la rama/sucursal existe
+    branch = db.query(Branch).filter(Branch.id == body.branch_id).first()
+    if not branch:
+        raise HTTPException(status_code=404, detail="Sucursal no encontrada")
+    
+    # Validar que la rama y el empleado están en la misma organización
+    if branch.organization_id != target_user.organization_id:
+        raise HTTPException(status_code=400, detail="La sucursal debe estar en la misma organización")
+    
+    # Asignar rama/sucursal
+    target_user.branch_id = body.branch_id
+    db.commit()
+    db.refresh(target_user)
+    
+    # Obtener nombre del supervisor para la respuesta
+    supervisor_name = None
+    if target_user.supervisor_id:
+        supervisor = db.query(User).filter(User.id == target_user.supervisor_id).first()
+        if supervisor:
+            supervisor_name = supervisor.name
+    
+    # Enviar notificación push si el usuario tiene token
+    if target_user.push_token:
+        send_push_notification(
+            push_token=target_user.push_token,
+            title="Sucursal Asignada",
+            body=f"Ahora estás asignado a {branch.name}",
+            data={
+                "action": "branch_assigned",
+                "branch_id": str(body.branch_id),
+                "branch_name": branch.name
             }
         )
     
