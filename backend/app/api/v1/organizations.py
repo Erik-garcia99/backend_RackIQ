@@ -82,25 +82,23 @@ def get_organization(
 def create_organization_token(
     organization_id: str,
     body: OrganizationTokenCreateRequest,
-    current_user: dict = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """
-    Crea un nuevo token de organización.
+    Crea un nuevo token de invitación para una organización.
     
-    **Requiere**: Usuario autenticado que pertenezca a la organización.
+    Este endpoint es público: el admin crea la organización y los tokens,
+    y luego entrega los tokens a los usuarios para que se registren.
     """
     try:
         org_uuid = uuid.UUID(organization_id)
     except ValueError:
         raise HTTPException(status_code=400, detail="ID de organización inválido")
     
-    # Verificar que el usuario pertenezca a la organización
-    if str(current_user.get("org")) != organization_id:
-        raise HTTPException(
-            status_code=403,
-            detail="No tienes permiso para crear tokens en esta organización"
-        )
+    # Verificar que la organización exista
+    org = db.query(Organization).filter(Organization.id == org_uuid).first()
+    if not org:
+        raise HTTPException(status_code=404, detail="Organización no encontrada")
     
     # Generar token único
     token = secrets.token_urlsafe(32)
@@ -116,7 +114,7 @@ def create_organization_token(
         organization_id=org_uuid,
         token=token,
         label=body.label.strip(),
-        created_by=current_user.get("sub"),
+        created_by=None,  # Nadie crea esto, es el admin manualmente
     )
     
     db.add(org_token)
