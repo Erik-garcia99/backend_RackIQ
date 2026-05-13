@@ -15,7 +15,7 @@ from app.models.organization_token import OrganizationToken
 from pydantic import BaseModel
 from uuid import UUID
 
-router = APIRouter(prefix="/api/rpi", tags=["rpi"])
+router = APIRouter(prefix="/rpi", tags=["rpi"])
 
 
 # ============ SCHEMAS ============
