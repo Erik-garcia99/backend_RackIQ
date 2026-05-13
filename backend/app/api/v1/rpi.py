@@ -343,7 +343,6 @@ def register_esp32(
     if not shelf:
         # Crear nuevo Shelf
         shelf = Shelf(
-            gateway_id=body.gateway_id,
             esp32_node_id=esp32_node.id,
             branch_id=body.branch_id,
             hx711_channel=body.hx711_channel,

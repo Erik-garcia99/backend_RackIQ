@@ -25,8 +25,6 @@ class Gateway(Base):
 
     branch = relationship("Branch", back_populates="gateway")
     esp32_nodes = relationship("Esp32Node", back_populates="gateway")
-    shelves = relationship("Shelf", back_populates="gateway")
-    weight_readings = relationship("WeightReading", back_populates="gateway")
     influx_config = relationship("InfluxConfig", back_populates="gateway", uselist=False)
 
 
@@ -51,7 +49,6 @@ class Shelf(Base):
     __tablename__ = "shelf"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    gateway_id = Column(UUID(as_uuid=True), ForeignKey("gateway.id", ondelete="CASCADE"), nullable=False)
     branch_id = Column(UUID(as_uuid=True), ForeignKey("branch.id", ondelete="CASCADE"), nullable=False)
     product_id = Column(UUID(as_uuid=True), ForeignKey("product.id", ondelete="SET NULL"), nullable=True)
     esp32_node_id = Column(UUID(as_uuid=True), ForeignKey("esp32_node.id", ondelete="SET NULL"), nullable=True)
@@ -67,7 +64,6 @@ class Shelf(Base):
     last_calibrated_at = Column(TIMESTAMP(timezone=True))
     is_active = Column(Boolean, default=True)
 
-    gateway = relationship("Gateway", back_populates="shelves")
     esp32_node = relationship("Esp32Node", back_populates="shelves")
     weight_readings = relationship("WeightReading", back_populates="shelf")
     stock_events = relationship("StockEvent", back_populates="shelf")
@@ -80,13 +76,11 @@ class WeightReading(Base):
     __tablename__ = "weight_reading"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    gateway_id = Column(UUID(as_uuid=True), ForeignKey("gateway.id", ondelete="CASCADE"), nullable=False)
     shelf_id = Column(UUID(as_uuid=True), ForeignKey("shelf.id", ondelete="CASCADE"), nullable=False)
     raw_weight_grams = Column(Numeric(10, 4), nullable=False)
     net_weight_grams = Column(Numeric(10, 4), nullable=False)
     recorded_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
-    gateway = relationship("Gateway", back_populates="weight_readings")
     shelf = relationship("Shelf", back_populates="weight_readings")
 
 
