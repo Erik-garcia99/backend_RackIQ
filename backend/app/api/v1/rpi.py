@@ -132,13 +132,14 @@ def register_rpi(
             detail=f"Sucursal con código '{body.branch_code}' no encontrada o inactiva"
         )
     
-    # 3. Buscar o crear gateway
+    # 3. Buscar o crear gateway (solo uno por sucursal)
     gateway = db.query(Gateway).filter(
-        Gateway.mac_address == body.mac
+        Gateway.branch_id == branch.id
     ).first()
     
     if gateway:
         # Actualizar gateway existente
+        gateway.mac_address = body.mac
         gateway.firmware_version = body.firmware_version
         gateway.last_heartbeat_at = func.now()
         gateway.is_online = True
