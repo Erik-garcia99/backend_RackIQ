@@ -25,6 +25,8 @@ class Gateway(Base):
 
     branch = relationship("Branch", back_populates="gateway")
     esp32_nodes = relationship("Esp32Node", back_populates="gateway")
+    # TODO: Descomentar cuando influx_config table exista en Supabase
+    # influx_config = relationship("InfluxConfig", back_populates="gateway", uselist=False)
 
 
 class Esp32Node(Base):
@@ -150,4 +152,5 @@ class InfluxConfig(Base):
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
     updated_at = Column(TIMESTAMP(timezone=True), server_default=func.now(), onupdate=func.now())
 
-    gateway = relationship("Gateway", back_populates="influx_config")
+    # TODO: Descomentar cuando gateway pueda tener relación a esta tabla
+    # gateway = relationship("Gateway", back_populates="influx_config")
