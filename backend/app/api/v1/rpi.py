@@ -8,7 +8,7 @@ from datetime import datetime
 from app.db.database import get_db
 from app.models.rpi_models import (
     Gateway, Esp32Node, Shelf, WeightReading, 
-    StockEvent, AnomalyEvent, Alert, InfluxConfig
+    StockEvent, AnomalyEvent, Alert
 )
 from app.models.branch import Branch
 from app.models.organization_token import OrganizationToken
@@ -395,13 +395,14 @@ def get_gateway_config(
     if branch.organization_id != org_token.organization_id:
         raise HTTPException(status_code=403, detail="No tienes acceso a este gateway")
     
-    influx_config = db.query(InfluxConfig).filter(InfluxConfig.gateway_id == gw_id).first()
+    # TODO: Consultar InfluxConfig cuando la tabla exista en la BD
+    # influx_config = db.query(InfluxConfig).filter(InfluxConfig.gateway_id == gw_id).first()
     
     return {
         "gateway_id": str(gateway.id),
         "rpi_identifier": gateway.rpi_identifier,
         "branch_id": str(gateway.branch_id),
-        "influx_config": influx_config.dict() if influx_config else None
+        "influx_config": None  # Por implementar en futuro
     }
 
 

@@ -25,7 +25,6 @@ class Gateway(Base):
 
     branch = relationship("Branch", back_populates="gateway")
     esp32_nodes = relationship("Esp32Node", back_populates="gateway")
-    influx_config = relationship("InfluxConfig", back_populates="gateway", uselist=False)
 
 
 class Esp32Node(Base):
