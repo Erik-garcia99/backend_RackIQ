@@ -48,18 +48,26 @@ class AnomalyEventRequest(BaseModel):
     confidence_score: Optional[float] = None
 
 
+class HX711StatusResponse(BaseModel):
+    pin: int  # Pin del ESP32 (4, 22, 23, 12, 14)
+    position: int  # Posición (1-5)
+    shelf_id: UUID
+    is_connected: bool
+    shelf_name: str
+
+
 class Esp32RegisterRequest(BaseModel):
     mac_address: str
-    hx711_channel: int
     gateway_id: UUID
     branch_id: UUID
+    hx711_status: List[dict]  # Lista con {pin: int, is_connected: bool} para cada HX711
 
 
 class Esp32RegisterResponse(BaseModel):
     esp32_node_id: UUID
-    shelf_id: UUID
-    hx711_channel: int
+    node_name: str
     message: str
+    hx711_list: List[HX711StatusResponse]
 
 
 class InfluxConfigRequest(BaseModel):
@@ -200,6 +208,7 @@ def receive_weight_reading(
     """
     Recibe lecturas de peso desde la RPI.
     La RPI envía lecturas cada minuto.
+    También actualiza el estado de conectividad del estante.
     """
     token = extract_token(authorization)
     org_token = verify_organization_token(db, token)
@@ -216,12 +225,16 @@ def receive_weight_reading(
     
     # Crear registro de lectura
     reading = WeightReading(
-        gateway_id=shelf.gateway_id,
         shelf_id=shelf_id,
         raw_weight_grams=body.raw_weight_grams,
         net_weight_grams=body.net_weight_grams
     )
     db.add(reading)
+    
+    # Actualizar estado de conectividad del estante
+    shelf.is_connected = True
+    shelf.last_reading_at = func.now()
+    
     db.commit()
     
     return {"status": "received", "reading_id": str(reading.id)}
@@ -291,79 +304,138 @@ def register_esp32(
     db: Session = Depends(get_db)
 ):
     """
-    Registra un ESP32 en el sistema.
+    Registra un ESP32 en el sistema con sus 5 HX711s asociados.
     
-    Crea o actualiza:
-    - Esp32Node (con MAC address único)
-    - Shelf (automáticamente asignado a un channel HX711)
+    Crea automáticamente:
+    - Esp32Node (nodo ESP32)
+    - 5 Shelf (uno para cada HX711 en pins 4, 22, 23, 12, 14)
+    
+    Flujo:
+    1. Valida el token y permisos
+    2. Busca o crea el Esp32Node
+    3. Crea/actualiza 5 Shelf con los HX711s
+    4. Retorna información de conectividad de cada HX711
     """
     token = extract_token(authorization)
     org_token = verify_organization_token(db, token)
     
-    # Validar gateway
+    # Validar gateway y branch
     gateway = db.query(Gateway).filter(Gateway.id == body.gateway_id).first()
     if not gateway:
         raise HTTPException(status_code=404, detail="Gateway no encontrado")
     
-    # Validar branch
     branch = db.query(Branch).filter(Branch.id == body.branch_id).first()
     if not branch:
         raise HTTPException(status_code=404, detail="Rama no encontrada")
     
-    # Verificar permisos: el branch debe pertenecer a la organización del token
     if branch.organization_id != org_token.organization_id:
         raise HTTPException(status_code=403, detail="No tienes acceso a esta rama")
     
-    # Buscar o crear ESP32Node
+    # Definir los 5 HX711s con sus pines
+    hx711_pins = [
+        {"pin": 4, "position": 1},
+        {"pin": 22, "position": 2},
+        {"pin": 23, "position": 3},
+        {"pin": 12, "position": 4},
+        {"pin": 14, "position": 5},
+    ]
+    
+    # Crear o actualizar ESP32Node
     esp32_node = db.query(Esp32Node).filter(
         Esp32Node.mac_address == body.mac_address
     ).first()
     
     if not esp32_node:
-        # Crear nuevo ESP32Node
+        # Generar nombre por defecto del nodo
+        node_name = f"Nodo-{body.mac_address[-4:].upper()}"
+        
         esp32_node = Esp32Node(
             gateway_id=body.gateway_id,
             mac_address=body.mac_address,
+            name=node_name,
             firmware_version="3.0",
-            is_online=False
+            is_online=False,
+            last_heartbeat_at=func.now()
         )
         db.add(esp32_node)
-        db.flush()  # Para obtener el ID sin hacer commit
+        db.flush()
     else:
-        # Actualizar ESP32Node existente
         esp32_node.gateway_id = body.gateway_id
         esp32_node.firmware_version = "3.0"
+        esp32_node.last_heartbeat_at = func.now()
+        db.flush()
     
-    # Buscar o crear Shelf para este canal HX711
-    shelf = db.query(Shelf).filter(
-        Shelf.esp32_node_id == esp32_node.id,
-        Shelf.hx711_channel == body.hx711_channel
-    ).first()
+    # Procesar status de HX711s desde el ESP32
+    hx711_status_map = {}
+    if body.hx711_status:
+        for status in body.hx711_status:
+            hx711_status_map[status.get("pin")] = status.get("is_connected", False)
     
-    if not shelf:
-        # Crear nuevo Shelf
-        shelf = Shelf(
-            esp32_node_id=esp32_node.id,
-            branch_id=body.branch_id,
-            hx711_channel=body.hx711_channel,
-            name=f"Estante {body.mac_address[-5:].upper()} Ch{body.hx711_channel}",
-            is_active=True
-        )
-        db.add(shelf)
-    else:
-        # Actualizar Shelf existente
-        shelf.is_active = True
+    # Crear o actualizar los 5 Shelf (estantes)
+    created_shelves = []
+    
+    for hx_config in hx711_pins:
+        pin = hx_config["pin"]
+        position = hx_config["position"]
+        is_connected = hx711_status_map.get(pin, False)
+        
+        # Buscar si ya existe un Shelf para este pin
+        shelf = db.query(Shelf).filter(
+            Shelf.esp32_node_id == esp32_node.id,
+            Shelf.hx711_pin == pin
+        ).first()
+        
+        if not shelf:
+            # Crear nuevo Shelf
+            shelf_name = f"Estante {position}"
+            shelf = Shelf(
+                esp32_node_id=esp32_node.id,
+                branch_id=body.branch_id,
+                hx711_channel=position - 1,  # Canal 0-4
+                hx711_pin=pin,
+                hx711_position=position,
+                name=shelf_name,
+                is_connected=is_connected,
+                is_active=True
+            )
+            db.add(shelf)
+            db.flush()
+        else:
+            # Actualizar estado de conectividad
+            shelf.is_connected = is_connected
+            shelf.hx711_pin = pin
+            shelf.hx711_position = position
+            shelf.is_active = True
+        
+        created_shelves.append({
+            "shelf": shelf,
+            "is_connected": is_connected,
+            "pin": pin,
+            "position": position
+        })
     
     db.commit()
     db.refresh(esp32_node)
-    db.refresh(shelf)
+    
+    # Construir respuesta con información de HX711s
+    hx711_list = [
+        HX711StatusResponse(
+            pin=item["pin"],
+            position=item["position"],
+            shelf_id=item["shelf"].id,
+            is_connected=item["is_connected"],
+            shelf_name=item["shelf"].name
+        )
+        for item in created_shelves
+    ]
     
     return Esp32RegisterResponse(
         esp32_node_id=esp32_node.id,
-        shelf_id=shelf.id,
-        hx711_channel=body.hx711_channel,
-        message="ESP32 registrado exitosamente"
+        node_name=esp32_node.name,
+        message="ESP32 registrado con sus 5 HX711s",
+        hx711_list=hx711_list
     )
+
 
 
 @router.post("/anomalies")
@@ -471,23 +543,33 @@ def get_gateway_shelves(
     if branch.organization_id != org_token.organization_id:
         raise HTTPException(status_code=403, detail="No tienes acceso a este gateway")
     
-    # Obtener estantes
-    shelves = db.query(Shelf).filter(
-        Shelf.gateway_id == gw_id,
-        Shelf.is_active == True
+    # Obtener estantes a través de los nodos ESP32
+    esp32_nodes = db.query(Esp32Node).filter(
+        Esp32Node.gateway_id == gw_id
     ).all()
     
-    return [
-        {
-            "id": str(shelf.id),
-            "name": shelf.name,
-            "hx711_channel": shelf.hx711_channel,
-            "product_id": str(shelf.product_id) if shelf.product_id else None,
-            "max_capacity_grams": float(shelf.max_capacity_grams) if shelf.max_capacity_grams else None,
-            "low_stock_threshold_kg": float(shelf.low_stock_threshold_kg) if shelf.low_stock_threshold_kg else None,
-        }
-        for shelf in shelves
-    ]
+    shelves_list = []
+    for node in esp32_nodes:
+        shelves = db.query(Shelf).filter(
+            Shelf.esp32_node_id == node.id,
+            Shelf.is_active == True
+        ).all()
+        for shelf in shelves:
+            shelves_list.append({
+                "id": str(shelf.id),
+                "name": shelf.name,
+                "hx711_channel": shelf.hx711_channel,
+                "hx711_pin": shelf.hx711_pin,
+                "hx711_position": shelf.hx711_position,
+                "product_id": str(shelf.product_id) if shelf.product_id else None,
+                "max_capacity_grams": float(shelf.max_capacity_grams) if shelf.max_capacity_grams else None,
+                "low_stock_threshold_kg": float(shelf.low_stock_threshold_kg) if shelf.low_stock_threshold_kg else None,
+                "is_connected": shelf.is_connected,
+                "status": "online" if shelf.is_connected else "offline"
+            })
+    
+    return shelves_list
+
 
 
 @router.post("/gateway/{gateway_id}/update-status")
@@ -521,3 +603,204 @@ def update_gateway_status(
     db.commit()
     
     return {"status": "updated", "gateway_id": str(gateway.id)}
+
+
+# ============ ENDPOINTS PARA NODOS Y ESTANTES ============
+
+@router.get("/branch/{branch_id}/esp32-nodes")
+def get_branch_esp32_nodes(
+    branch_id: str,
+    authorization: Optional[str] = Header(None),
+    db: Session = Depends(get_db)
+):
+    """
+    Obtiene todos los nodos ESP32 de una rama con sus estantes.
+    Usado para mostrar nodos disponibles para configuración en el frontend.
+    """
+    token = extract_token(authorization)
+    org_token = verify_organization_token(db, token)
+    
+    try:
+        br_id = uuid.UUID(branch_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="branch_id inválido")
+    
+    # Validar branch y permisos
+    branch = db.query(Branch).filter(Branch.id == br_id).first()
+    if not branch:
+        raise HTTPException(status_code=404, detail="Rama no encontrada")
+    
+    if branch.organization_id != org_token.organization_id:
+        raise HTTPException(status_code=403, detail="No tienes acceso a esta rama")
+    
+    # Obtener todos los nodos ESP32 de esta rama
+    gateway = db.query(Gateway).filter(Gateway.branch_id == br_id).first()
+    if not gateway:
+        return []
+    
+    esp32_nodes = db.query(Esp32Node).filter(
+        Esp32Node.gateway_id == gateway.id
+    ).all()
+    
+    nodes_response = []
+    for node in esp32_nodes:
+        shelves = db.query(Shelf).filter(
+            Shelf.esp32_node_id == node.id
+        ).order_by(Shelf.hx711_position).all()
+        
+        shelves_data = [
+            {
+                "id": str(shelf.id),
+                "name": shelf.name,
+                "pin": shelf.hx711_pin,
+                "position": shelf.hx711_position,
+                "is_connected": shelf.is_connected,
+                "last_reading_at": shelf.last_reading_at.isoformat() if shelf.last_reading_at else None,
+                "status": "online" if shelf.is_connected else "offline"
+            }
+            for shelf in shelves
+        ]
+        
+        nodes_response.append({
+            "id": str(node.id),
+            "mac_address": node.mac_address,
+            "name": node.name,
+            "is_online": node.is_online,
+            "firmware_version": node.firmware_version,
+            "shelves": shelves_data
+        })
+    
+    return nodes_response
+
+
+@router.patch("/esp32-node/{node_id}/name")
+def update_esp32_node_name(
+    node_id: str,
+    body: dict,  # {"name": "Nuevo nombre"}
+    authorization: Optional[str] = Header(None),
+    db: Session = Depends(get_db)
+):
+    """
+    Actualiza el nombre de un nodo ESP32
+    """
+    token = extract_token(authorization)
+    org_token = verify_organization_token(db, token)
+    
+    try:
+        n_id = uuid.UUID(node_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="node_id inválido")
+    
+    # Obtener nodo
+    esp32_node = db.query(Esp32Node).filter(Esp32Node.id == n_id).first()
+    if not esp32_node:
+        raise HTTPException(status_code=404, detail="Nodo ESP32 no encontrado")
+    
+    # Validar permisos
+    gateway = db.query(Gateway).filter(Gateway.id == esp32_node.gateway_id).first()
+    branch = db.query(Branch).filter(Branch.id == gateway.branch_id).first()
+    if branch.organization_id != org_token.organization_id:
+        raise HTTPException(status_code=403, detail="No tienes acceso a este nodo")
+    
+    # Actualizar nombre
+    new_name = body.get("name", "").strip()
+    if not new_name:
+        raise HTTPException(status_code=400, detail="El nombre no puede estar vacío")
+    
+    esp32_node.name = new_name
+    esp32_node.updated_at = func.now()
+    db.commit()
+    
+    return {
+        "status": "updated",
+        "node_id": str(esp32_node.id),
+        "new_name": esp32_node.name
+    }
+
+
+@router.patch("/shelf/{shelf_id}/name")
+def update_shelf_name(
+    shelf_id: str,
+    body: dict,  # {"name": "Nuevo nombre del estante"}
+    authorization: Optional[str] = Header(None),
+    db: Session = Depends(get_db)
+):
+    """
+    Actualiza el nombre de un estante (shelf)
+    """
+    token = extract_token(authorization)
+    org_token = verify_organization_token(db, token)
+    
+    try:
+        sh_id = uuid.UUID(shelf_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="shelf_id inválido")
+    
+    # Obtener estante
+    shelf = db.query(Shelf).filter(Shelf.id == sh_id).first()
+    if not shelf:
+        raise HTTPException(status_code=404, detail="Estante no encontrado")
+    
+    # Validar permisos
+    branch = db.query(Branch).filter(Branch.id == shelf.branch_id).first()
+    if branch.organization_id != org_token.organization_id:
+        raise HTTPException(status_code=403, detail="No tienes acceso a este estante")
+    
+    # Actualizar nombre
+    new_name = body.get("name", "").strip()
+    if not new_name:
+        raise HTTPException(status_code=400, detail="El nombre no puede estar vacío")
+    
+    shelf.name = new_name
+    shelf.updated_at = func.now()
+    db.commit()
+    
+    return {
+        "status": "updated",
+        "shelf_id": str(shelf.id),
+        "new_name": shelf.name
+    }
+
+
+@router.patch("/shelf/{shelf_id}/status")
+def update_shelf_connection_status(
+    shelf_id: str,
+    body: dict,  # {"is_connected": bool, "last_reading_at": datetime}
+    authorization: Optional[str] = Header(None),
+    db: Session = Depends(get_db)
+):
+    """
+    Actualiza el estado de conectividad de un HX711 (estante)
+    Usado por el ESP32 para reportar si está recibiendo lectura
+    """
+    token = extract_token(authorization)
+    org_token = verify_organization_token(db, token)
+    
+    try:
+        sh_id = uuid.UUID(shelf_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="shelf_id inválido")
+    
+    # Obtener estante
+    shelf = db.query(Shelf).filter(Shelf.id == sh_id).first()
+    if not shelf:
+        raise HTTPException(status_code=404, detail="Estante no encontrado")
+    
+    # Validar permisos
+    branch = db.query(Branch).filter(Branch.id == shelf.branch_id).first()
+    if branch.organization_id != org_token.organization_id:
+        raise HTTPException(status_code=403, detail="No tienes acceso a este estante")
+    
+    # Actualizar estado de conectividad
+    is_connected = body.get("is_connected", shelf.is_connected)
+    shelf.is_connected = is_connected
+    shelf.last_reading_at = func.now()
+    shelf.updated_at = func.now()
+    db.commit()
+    
+    return {
+        "status": "updated",
+        "shelf_id": str(shelf.id),
+        "is_connected": shelf.is_connected
+    }
+

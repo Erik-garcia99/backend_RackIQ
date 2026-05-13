@@ -36,10 +36,13 @@ class Esp32Node(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     gateway_id = Column(UUID(as_uuid=True), ForeignKey("gateway.id", ondelete="CASCADE"), nullable=False)
     mac_address = Column(Text, nullable=False, unique=True)
+    name = Column(Text)  # Nombre personalizado del nodo
     firmware_version = Column(Text)
     last_heartbeat_at = Column(TIMESTAMP(timezone=True))
     is_online = Column(Boolean, default=False)
     wifi_rssi = Column(Numeric(6, 2))
+    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+    updated_at = Column(TIMESTAMP(timezone=True), server_default=func.now(), onupdate=func.now())
 
     gateway = relationship("Gateway", back_populates="esp32_nodes")
     shelves = relationship("Shelf", back_populates="esp32_node")
@@ -56,6 +59,11 @@ class Shelf(Base):
     
     name = Column(Text, nullable=False)  # ej: "Estante Carnes A"
     hx711_channel = Column(SmallInteger, nullable=False)  # Canal del HX711 (0-3)
+    hx711_pin = Column(Integer, nullable=False)  # Pin del ESP32 (4, 22, 23, 12, 14)
+    hx711_position = Column(SmallInteger, nullable=False)  # Posición (1-5) para orden
+    is_connected = Column(Boolean, default=False)  # Si el HX711 está conectado
+    last_reading_at = Column(TIMESTAMP(timezone=True))  # Última lectura recibida
+    
     tare_weight_grams = Column(Numeric(10, 4), default=0)
     scale_factor = Column(Numeric(14, 8), default=1)
     max_capacity_grams = Column(Numeric(10, 4))
@@ -64,6 +72,8 @@ class Shelf(Base):
     alert_mode = Column(Text, default="auto")  # auto, manual, disabled
     last_calibrated_at = Column(TIMESTAMP(timezone=True))
     is_active = Column(Boolean, default=True)
+    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+    updated_at = Column(TIMESTAMP(timezone=True), server_default=func.now(), onupdate=func.now())
 
     esp32_node = relationship("Esp32Node", back_populates="shelves")
     weight_readings = relationship("WeightReading", back_populates="shelf")
