@@ -324,15 +324,15 @@ def register_esp32(
         esp32_node = Esp32Node(
             gateway_id=body.gateway_id,
             mac_address=body.mac_address,
-            is_active=True,
-            firmware_version="3.0"
+            firmware_version="3.0",
+            is_online=False
         )
         db.add(esp32_node)
         db.flush()  # Para obtener el ID sin hacer commit
     else:
         # Actualizar ESP32Node existente
         esp32_node.gateway_id = body.gateway_id
-        esp32_node.is_active = True
+        esp32_node.firmware_version = "3.0"
     
     # Buscar o crear Shelf para este canal HX711
     shelf = db.query(Shelf).filter(
