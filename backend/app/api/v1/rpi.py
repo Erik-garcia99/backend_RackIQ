@@ -48,6 +48,20 @@ class AnomalyEventRequest(BaseModel):
     confidence_score: Optional[float] = None
 
 
+class Esp32RegisterRequest(BaseModel):
+    mac_address: str
+    hx711_channel: int
+    gateway_id: UUID
+    branch_id: UUID
+
+
+class Esp32RegisterResponse(BaseModel):
+    esp32_node_id: UUID
+    shelf_id: UUID
+    hx711_channel: int
+    message: str
+
+
 class InfluxConfigRequest(BaseModel):
     influx_url: str
     influx_token: str
@@ -268,6 +282,92 @@ def report_anomaly(
         "alert_id": str(alert.id),
         "message": "Anomalía reportada"
     }
+
+
+@router.post("/esp32/register", status_code=201, response_model=Esp32RegisterResponse)
+def register_esp32(
+    body: Esp32RegisterRequest,
+    authorization: Optional[str] = Header(None),
+    db: Session = Depends(get_db)
+):
+    """
+    Registra un ESP32 en el sistema.
+    
+    Crea o actualiza:
+    - Esp32Node (con MAC address único)
+    - Shelf (automáticamente asignado a un channel HX711)
+    """
+    token = extract_token(authorization)
+    org_token = verify_organization_token(db, token)
+    
+    # Validar gateway
+    gateway = db.query(Gateway).filter(Gateway.id == body.gateway_id).first()
+    if not gateway:
+        raise HTTPException(status_code=404, detail="Gateway no encontrado")
+    
+    # Validar branch
+    branch = db.query(Branch).filter(Branch.id == body.branch_id).first()
+    if not branch:
+        raise HTTPException(status_code=404, detail="Rama no encontrada")
+    
+    # Verificar permisos: el branch debe pertenecer a la organización del token
+    if branch.organization_id != org_token.organization_id:
+        raise HTTPException(status_code=403, detail="No tienes acceso a esta rama")
+    
+    # Buscar o crear ESP32Node
+    esp32_node = db.query(Esp32Node).filter(
+        Esp32Node.mac_address == body.mac_address
+    ).first()
+    
+    if not esp32_node:
+        # Crear nuevo ESP32Node
+        esp32_node = Esp32Node(
+            gateway_id=body.gateway_id,
+            mac_address=body.mac_address,
+            is_active=True,
+            firmware_version="3.0"
+        )
+        db.add(esp32_node)
+        db.flush()  # Para obtener el ID sin hacer commit
+    else:
+        # Actualizar ESP32Node existente
+        esp32_node.gateway_id = body.gateway_id
+        esp32_node.is_active = True
+    
+    # Buscar o crear Shelf para este canal HX711
+    shelf = db.query(Shelf).filter(
+        Shelf.esp32_node_id == esp32_node.id,
+        Shelf.hx711_channel == body.hx711_channel
+    ).first()
+    
+    if not shelf:
+        # Crear nuevo Shelf
+        shelf = Shelf(
+            gateway_id=body.gateway_id,
+            esp32_node_id=esp32_node.id,
+            branch_id=body.branch_id,
+            hx711_channel=body.hx711_channel,
+            name=f"Estante {body.mac_address[-5:].upper()} Ch{body.hx711_channel}",
+            is_active=True
+        )
+        db.add(shelf)
+    else:
+        # Actualizar Shelf existente
+        shelf.is_active = True
+    
+    db.commit()
+    db.refresh(esp32_node)
+    db.refresh(shelf)
+    
+    return Esp32RegisterResponse(
+        esp32_node_id=esp32_node.id,
+        shelf_id=shelf.id,
+        hx711_channel=body.hx711_channel,
+        message="ESP32 registrado exitosamente"
+    )
+
+
+@router.post("/anomalies")
 
 
 @router.get("/gateway/{gateway_id}/config")
