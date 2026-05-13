@@ -344,11 +344,9 @@ def register_esp32(
     esp32_node = db.query(Esp32Node).filter(
         Esp32Node.mac_address == body.mac_address
     ).first()
-    
+
     if not esp32_node:
-        # Generar nombre por defecto del nodo
         node_name = f"Nodo-{body.mac_address[-4:].upper()}"
-        
         esp32_node = Esp32Node(
             gateway_id=body.gateway_id,
             mac_address=body.mac_address,
@@ -360,9 +358,14 @@ def register_esp32(
         db.add(esp32_node)
         db.flush()
     else:
+        # Actualizar datos existentes
         esp32_node.gateway_id = body.gateway_id
         esp32_node.firmware_version = "3.0"
         esp32_node.last_heartbeat_at = func.now()
+        # Si no tiene nombre, asignar uno por defecto
+        if not esp32_node.name:
+            esp32_node.name = f"Nodo-{body.mac_address[-4:].upper()}"
+            db.add(esp32_node)
         db.flush()
     
     # Procesar status de HX711s desde el ESP32
