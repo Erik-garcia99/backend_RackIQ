@@ -99,7 +99,7 @@ def verify_organization_token(db: Session, token: str) -> OrganizationToken:
 
 # ============ ENDPOINTS ============
 
-@router.post("/register", response_model=RpiRegisterResponse)
+@router.post("/register", status_code=201, response_model=RpiRegisterResponse)
 def register_rpi(
     body: RpiRegisterRequest,
     authorization: Optional[str] = Header(None),
