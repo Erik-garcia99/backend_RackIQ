@@ -7,7 +7,7 @@ from datetime import datetime
 
 from app.db.database import get_db
 from app.models.rpi_models import (
-    Gateway, Esp32Node, Shelf, WeightReading, 
+    Gateway, Esp32Node, PendingCommand, Shelf, WeightReading, 
     StockEvent, AnomalyEvent, Alert
 )
 from app.models.branch import Branch
@@ -641,6 +641,9 @@ def get_branch_esp32_nodes(
     if not gateway:
         return []
     
+    gateway_ip = gateway.ip_address if gateway else None
+
+
     esp32_nodes = db.query(Esp32Node).filter(
         Esp32Node.gateway_id == gateway.id
     ).all()
@@ -670,7 +673,8 @@ def get_branch_esp32_nodes(
             "name": node.name,
             "is_online": node.is_online,
             "firmware_version": node.firmware_version,
-            "shelves": shelves_data
+            "shelves": shelves_data,
+            "gateway_ip": gateway_ip
         })
     
     return nodes_response
@@ -806,4 +810,251 @@ def update_shelf_connection_status(
         "shelf_id": str(shelf.id),
         "is_connected": shelf.is_connected
     }
+# ============ CALIBRATION ENDPOINTS ============
 
+class CalibrationUpdateRequest(BaseModel):
+    last_calibrated_at: Optional[datetime] = None
+    scale_factor: Optional[float] = None
+
+@router.patch("/shelf/{shelf_id}/calibration")
+def update_shelf_calibration(
+    shelf_id: str,
+    body: CalibrationUpdateRequest,
+    authorization: Optional[str] = Header(None),
+    db: Session = Depends(get_db)
+):
+    """
+    Actualiza los parámetros de calibración de un estante (tara y factor de escala).
+    Usado por la RPI cuando recibe confirmación del ESP32.
+    """
+    token = extract_token(authorization)
+    org_token = verify_organization_token(db, token)
+    
+    try:
+        sh_id = uuid.UUID(shelf_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="shelf_id inválido")
+    
+    shelf = db.query(Shelf).filter(Shelf.id == sh_id).first()
+    if not shelf:
+        raise HTTPException(status_code=404, detail="Estante no encontrado")
+    
+    # Verificar permisos
+    branch = db.query(Branch).filter(Branch.id == shelf.branch_id).first()
+    if branch.organization_id != org_token.organization_id:
+        raise HTTPException(status_code=403, detail="No tienes acceso a este estante")
+    
+    if body.last_calibrated_at:
+        shelf.last_calibrated_at = body.last_calibrated_at
+    if body.scale_factor is not None:
+        shelf.scale_factor = body.scale_factor
+    
+    shelf.updated_at = func.now()
+
+    db.query(PendingCommand).filter(
+        PendingCommand.shelf_id == shelf.id,
+        PendingCommand.status == "pending"
+    ).update({"status": "executed", "executed_at": func.now()})
+    db.commit()
+    
+    return {"status": "updated", "shelf_id": str(shelf.id)}
+
+
+@router.get("/shelf/{shelf_id}/full")
+def get_shelf_full(
+    shelf_id: str,
+    authorization: Optional[str] = Header(None),
+    db: Session = Depends(get_db)
+):
+    """
+    Obtiene toda la información del estante, incluyendo el producto asociado y el nodo ESP32.
+    """
+    token = extract_token(authorization)
+    org_token = verify_organization_token(db, token)
+    
+    try:
+        sh_id = uuid.UUID(shelf_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="shelf_id inválido")
+    
+    shelf = db.query(Shelf).filter(Shelf.id == sh_id).first()
+    if not shelf:
+        raise HTTPException(status_code=404, detail="Estante no encontrado")
+    
+    branch = db.query(Branch).filter(Branch.id == shelf.branch_id).first()
+    if branch.organization_id != org_token.organization_id:
+        raise HTTPException(status_code=403, detail="No tienes acceso a este estante")
+    
+    # Información del nodo ESP32
+    node_info = None
+    if shelf.esp32_node_id:
+        node = db.query(Esp32Node).filter(Esp32Node.id == shelf.esp32_node_id).first()
+        if node:
+            node_info = {
+                "id": str(node.id),
+                "name": node.name,
+                "mac_address": node.mac_address,
+                "is_online": node.is_online
+            }
+    
+    # Información del producto
+    product_info = None
+    if shelf.product_id:
+        from app.models.product import Product
+        product = db.query(Product).filter(Product.id == shelf.product_id).first()
+        if product:
+            product_info = {
+                "id": str(product.id),
+                "name": product.name,
+                "sku": product.sku,
+                "unit_cost": float(product.unit_cost) if product.unit_cost else 0,
+                "unit_price": float(product.unit_price) if product.unit_price else 0,
+                "unit_weight_grams": float(product.unit_weight_grams) if product.unit_weight_grams else None,
+                "category": product.category,
+            }
+    
+    return {
+        "id": str(shelf.id),
+        "name": shelf.name,
+        "branch_id": str(shelf.branch_id),
+        "esp32_node": node_info,
+        "hx711_pin": shelf.hx711_pin,
+        "hx711_position": shelf.hx711_position,
+        "is_connected": shelf.is_connected,
+        "last_reading_at": shelf.last_reading_at.isoformat() if shelf.last_reading_at else None,
+        "tare_weight_grams": float(shelf.tare_weight_grams) if shelf.tare_weight_grams else 0,
+        "scale_factor": float(shelf.scale_factor) if shelf.scale_factor else 1,
+        "max_capacity_grams": float(shelf.max_capacity_grams) if shelf.max_capacity_grams else None,
+        "low_stock_threshold_kg": float(shelf.low_stock_threshold_kg) if shelf.low_stock_threshold_kg else None,
+        "alert_mode": shelf.alert_mode,
+        "last_calibrated_at": shelf.last_calibrated_at.isoformat() if shelf.last_calibrated_at else None,
+        "product": product_info,
+    }
+
+
+# ============ COMMAND POLLING ============
+
+class PendingCommandResponse(BaseModel):
+    id: UUID
+    shelf_id: UUID
+    command_type: str
+    reference_weight_kg: Optional[float] = None
+
+
+@router.get("/gateway/{gateway_id}/commands")
+def get_pending_commands(
+    gateway_id: str,
+    authorization: Optional[str] = Header(None),
+    db: Session = Depends(get_db)
+):
+    """
+    RPI consulta comandos pendientes no ejecutados para su gateway.
+    """
+    token = extract_token(authorization)
+    org_token = verify_organization_token(db, token)
+
+    gateway = db.query(Gateway).filter(Gateway.id == gateway_id).first()
+    if not gateway:
+        raise HTTPException(404, "Gateway no encontrado")
+
+    # Comandos pendientes para estantes que pertenecen a ESP32s de este gateway
+    commands = db.query(PendingCommand).join(
+        Shelf, PendingCommand.shelf_id == Shelf.id
+    ).filter(
+        Shelf.esp32_node.has(gateway_id=gateway_id),
+        PendingCommand.status == "pending"
+    ).all()
+
+    return [PendingCommandResponse.model_validate(cmd) for cmd in commands]
+
+
+@router.patch("/commands/{command_id}/status")
+def update_command_status(
+    command_id: str,
+    body: dict,  # {"status": "executed"}
+    authorization: Optional[str] = Header(None),
+    db: Session = Depends(get_db)
+):
+    """
+    RPI notifica que ejecutó (o falló) el comando.
+    """
+    token = extract_token(authorization)
+    org_token = verify_organization_token(db, token)
+
+    cmd = db.query(PendingCommand).filter(PendingCommand.id == command_id).first()
+    if not cmd:
+        raise HTTPException(404, "Comando no encontrado")
+
+    new_status = body.get("status")
+    if new_status not in ("executed", "failed"):
+        raise HTTPException(400, "Status inválido")
+
+    cmd.status = new_status
+    cmd.executed_at = func.now()
+    db.commit()
+    return {"status": "ok"}
+
+
+@router.post("/calibrate/{shelf_id}/tare")
+def request_tare(
+    shelf_id: str,
+    authorization: Optional[str] = Header(None),
+    db: Session = Depends(get_db)
+):
+    """
+    Frontend → crea un comando de tara para un estante.
+    """
+    token = extract_token(authorization)
+    org_token = verify_organization_token(db, token)
+
+    shelf = db.query(Shelf).filter(Shelf.id == shelf_id).first()
+    if not shelf:
+        raise HTTPException(404, "Estante no encontrado")
+
+    # Verificar permisos (usando branch)
+    branch = db.query(Branch).filter(Branch.id == shelf.branch_id).first()
+    if branch.organization_id != org_token.organization_id:
+        raise HTTPException(403, "No tienes acceso a este estante")
+
+    cmd = PendingCommand(
+        shelf_id=shelf_id,
+        command_type="tare"
+    )
+    db.add(cmd)
+    db.commit()
+    return {"message": "Comando de tara creado", "command_id": str(cmd.id)}
+
+
+@router.post("/calibrate/{shelf_id}/scale")
+def request_scale(
+    shelf_id: str,
+    body: dict,  # {"reference_weight_kg": 1.0}
+    authorization: Optional[str] = Header(None),
+    db: Session = Depends(get_db)
+):
+    """
+    Frontend → crea un comando de calibración con peso de referencia.
+    """
+    token = extract_token(authorization)
+    org_token = verify_organization_token(db, token)
+
+    shelf = db.query(Shelf).filter(Shelf.id == shelf_id).first()
+    if not shelf:
+        raise HTTPException(404, "Estante no encontrado")
+
+    branch = db.query(Branch).filter(Branch.id == shelf.branch_id).first()
+    if branch.organization_id != org_token.organization_id:
+        raise HTTPException(403, "No tienes acceso a este estante")
+
+    ref_weight = body.get("reference_weight_kg")
+    if not ref_weight or ref_weight <= 0:
+        raise HTTPException(400, "Peso de referencia inválido")
+
+    cmd = PendingCommand(
+        shelf_id=shelf_id,
+        command_type="scale",
+        reference_weight_kg=ref_weight
+    )
+    db.add(cmd)
+    db.commit()
+    return {"message": "Comando de calibración creado", "command_id": str(cmd.id)}

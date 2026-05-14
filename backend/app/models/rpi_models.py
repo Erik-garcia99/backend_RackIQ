@@ -145,6 +145,21 @@ class Alert(Base):
 
     shelf = relationship("Shelf", back_populates="alerts")
 
+class PendingCommand(Base):
+    """Comando pendiente de ejecución por la RPI sobre un estante"""
+    __tablename__ = "pending_commands"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    shelf_id = Column(UUID(as_uuid=True), ForeignKey("shelf.id", ondelete="CASCADE"), nullable=False)
+    command_type = Column(Text, nullable=False)  # 'tare' o 'scale'
+    reference_weight_kg = Column(Numeric(10, 4))  # solo para scale
+    status = Column(Text, default="pending")  # pending, executed, failed
+    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+    executed_at = Column(TIMESTAMP(timezone=True))
+
+    # relaciones
+    shelf = relationship("Shelf")
+
 
 class InfluxConfig(Base):
     """Credenciales InfluxDB para cada RPI"""
