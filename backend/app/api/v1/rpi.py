@@ -4,7 +4,8 @@ from sqlalchemy.orm import Session
 from sqlalchemy.sql import func
 from typing import List, Optional
 from datetime import datetime
-
+from app.core.security import get_current_user
+from app.models.user import User
 from app.db.database import get_db
 from app.models.rpi_models import (
     Gateway, Esp32Node, PendingCommand, Shelf, WeightReading, 
@@ -613,36 +614,33 @@ def update_gateway_status(
 @router.get("/branch/{branch_id}/esp32-nodes")
 def get_branch_esp32_nodes(
     branch_id: str,
-    authorization: Optional[str] = Header(None),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)  # Cambiar a autenticación de usuario
 ):
     """
     Obtiene todos los nodos ESP32 de una rama con sus estantes.
     Usado para mostrar nodos disponibles para configuración en el frontend.
     """
-    token = extract_token(authorization)
-    org_token = verify_organization_token(db, token)
-    
+    # Validar que el branch existe
     try:
         br_id = uuid.UUID(branch_id)
     except ValueError:
         raise HTTPException(status_code=400, detail="branch_id inválido")
     
-    # Validar branch y permisos
     branch = db.query(Branch).filter(Branch.id == br_id).first()
     if not branch:
         raise HTTPException(status_code=404, detail="Rama no encontrada")
     
-    if branch.organization_id != org_token.organization_id:
+    # Verificar que el usuario pertenece a la misma organización
+    if branch.organization_id != current_user.organization_id:
         raise HTTPException(status_code=403, detail="No tienes acceso a esta rama")
     
-    # Obtener todos los nodos ESP32 de esta rama
+    # Obtener el gateway de esta rama
     gateway = db.query(Gateway).filter(Gateway.branch_id == br_id).first()
     if not gateway:
         return []
     
     gateway_ip = gateway.ip_address if gateway else None
-
 
     esp32_nodes = db.query(Esp32Node).filter(
         Esp32Node.gateway_id == gateway.id
@@ -678,7 +676,6 @@ def get_branch_esp32_nodes(
         })
     
     return nodes_response
-
 
 @router.patch("/esp32-node/{node_id}/name")
 def update_esp32_node_name(
