@@ -374,7 +374,11 @@ def register_esp32(
     if body.hx711_status:
         for status in body.hx711_status:
             hx711_status_map[status.get("pin")] = status.get("is_connected", False)
-    
+    else:
+        # Si la lista viene vacía, asumimos True para evitar el estado "Offline" inicial
+        for p in [4, 22, 23, 12, 14]:
+            hx711_status_map[p] = True
+        
     # Crear o actualizar los 5 Shelf (estantes)
     created_shelves = []
     
