@@ -655,6 +655,8 @@ def get_branch_esp32_nodes(
         shelves = db.query(Shelf).filter(
             Shelf.esp32_node_id == node.id
         ).order_by(Shelf.hx711_position).all()
+
+        is_configured = not node.name.startswith('Nodo-')
         
         shelves_data = [
             {
@@ -674,6 +676,7 @@ def get_branch_esp32_nodes(
             "mac_address": node.mac_address,
             "name": node.name,
             "is_online": node.is_online,
+            "is_configured": is_configured,
             "firmware_version": node.firmware_version,
             "shelves": shelves_data,
             "gateway_ip": gateway_ip
