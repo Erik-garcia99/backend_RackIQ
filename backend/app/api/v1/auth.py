@@ -45,6 +45,7 @@ def login(body: LoginRequest, db: Session = Depends(get_db)):
         role=user.role,
         account_status=user.account_status,
         organization_id=user.organization_id,
+        branch_id=user.branch_id,
     )
 
 

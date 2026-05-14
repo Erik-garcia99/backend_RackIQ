@@ -15,6 +15,7 @@ class TokenResponse(BaseModel):
     role: str
     account_status: str          # ← nuevo, necesario para el front
     organization_id: UUID
+    branch_id: Optional[UUID] = None
 
 class RegisterRequest(BaseModel):
     full_name: str
