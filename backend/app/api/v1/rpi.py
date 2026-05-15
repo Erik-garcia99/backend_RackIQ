@@ -1062,3 +1062,28 @@ def request_scale(
     db.add(cmd)
     db.commit()
     return {"message": "Comando de calibración creado", "command_id": str(cmd.id)}
+
+@router.post("/esp32-node/{node_id}/heartbeat")
+def esp32_heartbeat(
+    node_id: str,
+    authorization: Optional[str] = Header(None),
+    db: Session = Depends(get_db)
+):
+    """Actualiza el estado online y el último heartbeat del ESP32"""
+    token = extract_token(authorization)
+    org_token = verify_organization_token(db, token)
+    
+    try:
+        n_id = uuid.UUID(node_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="node_id inválido")
+    
+    esp32 = db.query(Esp32Node).filter(Esp32Node.id == n_id).first()
+    if not esp32:
+        raise HTTPException(status_code=404, detail="ESP32 no encontrado")
+        
+    esp32.is_online = True
+    esp32.last_heartbeat_at = func.now()
+    db.commit()
+    
+    return {"status": "ok", "node_id": str(esp32.id)}
