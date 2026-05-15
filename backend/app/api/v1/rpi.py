@@ -688,15 +688,12 @@ def get_branch_esp32_nodes(
 def update_esp32_node_name(
     node_id: str,
     body: dict,  # {"name": "Nuevo nombre"}
-    authorization: Optional[str] = Header(None),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user) # <-- CAMBIO CLAVE: Usamos el usuario de la app
 ):
     """
-    Actualiza el nombre de un nodo ESP32
+    Actualiza el nombre de un nodo ESP32 desde la App
     """
-    token = extract_token(authorization)
-    org_token = verify_organization_token(db, token)
-    
     try:
         n_id = uuid.UUID(node_id)
     except ValueError:
@@ -707,10 +704,11 @@ def update_esp32_node_name(
     if not esp32_node:
         raise HTTPException(status_code=404, detail="Nodo ESP32 no encontrado")
     
-    # Validar permisos
+    # Validar permisos usando la organización del usuario
     gateway = db.query(Gateway).filter(Gateway.id == esp32_node.gateway_id).first()
     branch = db.query(Branch).filter(Branch.id == gateway.branch_id).first()
-    if branch.organization_id != org_token.organization_id:
+    
+    if branch.organization_id != current_user.organization_id:
         raise HTTPException(status_code=403, detail="No tienes acceso a este nodo")
     
     # Actualizar nombre
@@ -733,14 +731,13 @@ def update_esp32_node_name(
 def update_shelf_name(
     shelf_id: str,
     body: dict,  # {"name": "Nuevo nombre del estante"}
-    authorization: Optional[str] = Header(None),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user) # 1. CAMBIO: Recibimos al usuario de la app
 ):
     """
-    Actualiza el nombre de un estante (shelf)
+    Actualiza el nombre de un estante (shelf) desde la aplicación móvil
     """
-    token = extract_token(authorization)
-    org_token = verify_organization_token(db, token)
+    # (Ya no necesitamos extraer el token manual, get_current_user lo hace por nosotros)
     
     try:
         sh_id = uuid.UUID(shelf_id)
@@ -754,7 +751,9 @@ def update_shelf_name(
     
     # Validar permisos
     branch = db.query(Branch).filter(Branch.id == shelf.branch_id).first()
-    if branch.organization_id != org_token.organization_id:
+    
+    # 2. CAMBIO: Comparamos contra la organización del current_user, no del org_token
+    if branch.organization_id != current_user.organization_id:
         raise HTTPException(status_code=403, detail="No tienes acceso a este estante")
     
     # Actualizar nombre
