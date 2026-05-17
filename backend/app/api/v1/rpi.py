@@ -938,6 +938,87 @@ def get_shelf_full(
         "product": product_info,
     }
 
+@router.post("/shelf/{shelf_id}/assign-product")
+def assign_product_to_shelf(
+    shelf_id: str,
+    body: dict,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Crea un producto, un proveedor y los asocia a este estante.
+    """
+    try:
+        sh_id = uuid.UUID(shelf_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="shelf_id inválido")
+
+    shelf = db.query(Shelf).filter(Shelf.id == sh_id).first()
+    if not shelf:
+        raise HTTPException(status_code=404, detail="Estante no encontrado")
+
+    branch = db.query(Branch).filter(Branch.id == shelf.branch_id).first()
+    if branch.organization_id != current_user.organization_id:
+        raise HTTPException(status_code=403, detail="No tienes acceso a este estante")
+
+    from app.models.product import Product
+    from sqlalchemy.sql import text
+
+    # Parse body
+    nombre = body.get("nombre", "Sin nombre")
+    contenido_neto = body.get("contenidoNeto", "0")
+    try:
+        peso_gramos = float(str(contenido_neto).replace("g", "").replace(" ", "").strip())
+    except:
+        peso_gramos = 0.0
+
+    proveedor_nombre = body.get("proveedor", "")
+    telefono = body.get("noTelefonico", "")
+    correo = body.get("correoElectronico", "")
+    whatsapp = body.get("contactWhatsapp", False)
+    umbral = body.get("umbralBajoStock", "0")
+    try:
+        umbral_kg = float(str(umbral).replace("Kg", "").replace(" ", "").strip())
+    except:
+        umbral_kg = 0.0
+    
+    # 1. Crear producto
+    import random
+    sku = f"SKU-{random.randint(1000, 99999)}"
+    new_product = Product(
+        organization_id=current_user.organization_id,
+        branch_id=shelf.branch_id,
+        name=nombre,
+        sku=sku,
+        unit_weight_grams=peso_gramos
+    )
+    db.add(new_product)
+    db.flush() # Para obtener su id
+
+    # 2. Insertar proveedor usando SQL puro si hay nombre
+    if proveedor_nombre:
+        preferred = "whatsapp" if whatsapp else "email"
+        sql = text("""
+            INSERT INTO public.supplier (id, organization_id, name, contact_email, whatsapp_number, preferred_channel)
+            VALUES (:id, :org_id, :name, :email, :whatsapp_num, :channel)
+        """)
+        db.execute(sql, {
+            "id": uuid.uuid4(),
+            "org_id": current_user.organization_id,
+            "name": proveedor_nombre,
+            "email": correo,
+            "whatsapp_num": telefono,
+            "channel": preferred
+        })
+
+    # 3. Asignar producto al estante y configurar inventario
+    shelf.product_id = new_product.id
+    shelf.low_stock_threshold_kg = umbral_kg
+    # Si autostock está activado en tu UI, podrías asignarlo a alert_mode: "autostock" o similar
+    shelf.updated_at = func.now()
+
+    db.commit()
+    return {"status": "ok", "product_id": str(new_product.id)}
 
 # ============ COMMAND POLLING ============
 
