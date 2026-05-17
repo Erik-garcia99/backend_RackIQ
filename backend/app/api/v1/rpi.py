@@ -873,15 +873,12 @@ def update_shelf_calibration(
 @router.get("/shelf/{shelf_id}/full")
 def get_shelf_full(
     shelf_id: str,
-    authorization: Optional[str] = Header(None),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
     """
     Obtiene toda la información del estante, incluyendo el producto asociado y el nodo ESP32.
     """
-    token = extract_token(authorization)
-    org_token = verify_organization_token(db, token)
-    
     try:
         sh_id = uuid.UUID(shelf_id)
     except ValueError:
@@ -892,7 +889,7 @@ def get_shelf_full(
         raise HTTPException(status_code=404, detail="Estante no encontrado")
     
     branch = db.query(Branch).filter(Branch.id == shelf.branch_id).first()
-    if branch.organization_id != org_token.organization_id:
+    if branch.organization_id != current_user.organization_id:
         raise HTTPException(status_code=403, detail="No tienes acceso a este estante")
     
     # Información del nodo ESP32
@@ -1008,22 +1005,19 @@ def update_command_status(
 @router.post("/calibrate/{shelf_id}/tare")
 def request_tare(
     shelf_id: str,
-    authorization: Optional[str] = Header(None),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
     """
     Frontend → crea un comando de tara para un estante.
     """
-    token = extract_token(authorization)
-    org_token = verify_organization_token(db, token)
-
     shelf = db.query(Shelf).filter(Shelf.id == shelf_id).first()
     if not shelf:
         raise HTTPException(404, "Estante no encontrado")
 
     # Verificar permisos (usando branch)
     branch = db.query(Branch).filter(Branch.id == shelf.branch_id).first()
-    if branch.organization_id != org_token.organization_id:
+    if branch.organization_id != current_user.organization_id:
         raise HTTPException(403, "No tienes acceso a este estante")
 
     cmd = PendingCommand(
@@ -1039,21 +1033,18 @@ def request_tare(
 def request_scale(
     shelf_id: str,
     body: dict,  # {"reference_weight_kg": 1.0}
-    authorization: Optional[str] = Header(None),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
     """
     Frontend → crea un comando de calibración con peso de referencia.
     """
-    token = extract_token(authorization)
-    org_token = verify_organization_token(db, token)
-
     shelf = db.query(Shelf).filter(Shelf.id == shelf_id).first()
     if not shelf:
         raise HTTPException(404, "Estante no encontrado")
 
     branch = db.query(Branch).filter(Branch.id == shelf.branch_id).first()
-    if branch.organization_id != org_token.organization_id:
+    if branch.organization_id != current_user.organization_id:
         raise HTTPException(403, "No tienes acceso a este estante")
 
     ref_weight = body.get("reference_weight_kg")
