@@ -658,18 +658,25 @@ def get_branch_esp32_nodes(
 
         is_configured = not node.name.startswith('Nodo-')
         
-        shelves_data = [
-            {
+        shelves_data = []
+        for shelf in shelves:
+            latest_reading = db.query(WeightReading).filter(
+                WeightReading.shelf_id == shelf.id
+            ).order_by(WeightReading.recorded_at.desc()).first()
+            
+            shelves_data.append({
                 "id": str(shelf.id),
                 "name": shelf.name,
                 "pin": shelf.hx711_pin,
                 "position": shelf.hx711_position,
                 "is_connected": shelf.is_connected,
+                "product_id": str(shelf.product_id) if shelf.product_id else None,
+                "max_capacity_grams": float(shelf.max_capacity_grams) if shelf.max_capacity_grams else 0.0,
+                "low_stock_threshold_kg": float(shelf.low_stock_threshold_kg) if shelf.low_stock_threshold_kg else 0.0,
+                "current_weight_grams": float(latest_reading.net_weight_grams) if latest_reading else 0.0,
                 "last_reading_at": shelf.last_reading_at.isoformat() if shelf.last_reading_at else None,
                 "status": "online" if shelf.is_connected else "offline"
-            }
-            for shelf in shelves
-        ]
+            })
         
         nodes_response.append({
             "id": str(node.id),
