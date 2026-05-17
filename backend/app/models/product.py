@@ -18,7 +18,6 @@ class Product(Base):
     
     name = Column(Text, nullable=False)
     sku = Column(Text, nullable=False)
-    description = Column(Text)
     category = Column(Text, nullable=True)
     unit_weight_grams = Column(Float, nullable=True)
     
