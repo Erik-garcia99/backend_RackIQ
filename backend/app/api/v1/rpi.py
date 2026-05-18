@@ -1127,16 +1127,19 @@ def get_pending_commands(
     token = extract_token(authorization)
     org_token = verify_organization_token(db, token)
 
-    gateway = db.query(Gateway).filter(Gateway.id == gateway_id).first()
-    if not gateway:
-        raise HTTPException(404, "Gateway no encontrado")
-
-    # Comandos pendientes para estantes que pertenecen a ESP32s de este gateway
     try:
         gateway_uuid = uuid.UUID(gateway_id)
     except ValueError:
         raise HTTPException(status_code=400, detail="gateway_id inválido")
+
+    gateway = db.query(Gateway).filter(Gateway.id == gateway_uuid).first()
+    if not gateway:
+        raise HTTPException(404, "Gateway no encontrado")
+
+    # DEBUG: Log para ver qué está pasando
+    print(f"[DEBUG] Gateway encontrado: {gateway_uuid}")
     
+    # Comandos pendientes para estantes que pertenecen a ESP32s de este gateway
     commands = db.query(PendingCommand).join(
         Shelf, PendingCommand.shelf_id == Shelf.id
     ).join(
@@ -1145,6 +1148,10 @@ def get_pending_commands(
         Esp32Node.gateway_id == gateway_uuid,
         PendingCommand.status == "pending"
     ).all()
+    
+    print(f"[DEBUG] Comandos encontrados: {len(commands)}")
+    for cmd in commands:
+        print(f"[DEBUG] Comando: {cmd.id} - {cmd.command_type} para shelf {cmd.shelf_id}")
 
     return [PendingCommandResponse.model_validate(cmd) for cmd in commands]
 
