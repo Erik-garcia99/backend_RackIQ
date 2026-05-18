@@ -1020,6 +1020,75 @@ def assign_product_to_shelf(
     db.commit()
     return {"status": "ok", "product_id": str(new_product.id)}
 
+@router.patch("/product/{product_id}")
+def update_product(
+    product_id: str,
+    body: dict,  # {"name": "...", "unit_weight_grams": ...}
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Actualiza un producto existente.
+    Usado para actualizar nombre y peso unitario desde la aplicación móvil.
+    """
+    try:
+        prod_id = uuid.UUID(product_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="product_id inválido")
+
+    from app.models.product import Product
+    
+    # Obtener producto
+    product = db.query(Product).filter(Product.id == prod_id).first()
+    if not product:
+        raise HTTPException(status_code=404, detail="Producto no encontrado")
+
+    # Validar permisos - el usuario debe pertenecer a la misma organización
+    if product.organization_id != current_user.organization_id:
+        raise HTTPException(status_code=403, detail="No tienes acceso a este producto")
+
+    # Actualizar campos permitidos
+    if "name" in body and body["name"]:
+        product.name = body["name"].strip()
+    
+    if "unit_weight_grams" in body and body["unit_weight_grams"] is not None:
+        try:
+            product.unit_weight_grams = float(body["unit_weight_grams"])
+        except (ValueError, TypeError):
+            raise HTTPException(status_code=400, detail="unit_weight_grams debe ser un número")
+
+    if "category" in body and body["category"]:
+        product.category = body["category"].strip()
+
+    if "sku" in body and body["sku"]:
+        product.sku = body["sku"].strip()
+
+    if "unit_cost" in body and body["unit_cost"] is not None:
+        try:
+            product.unit_cost = float(body["unit_cost"])
+        except (ValueError, TypeError):
+            raise HTTPException(status_code=400, detail="unit_cost debe ser un número")
+
+    if "unit_price" in body and body["unit_price"] is not None:
+        try:
+            product.unit_price = float(body["unit_price"])
+        except (ValueError, TypeError):
+            raise HTTPException(status_code=400, detail="unit_price debe ser un número")
+
+    product.updated_at = func.now()
+    db.commit()
+    db.refresh(product)
+
+    return {
+        "status": "updated",
+        "product_id": str(product.id),
+        "name": product.name,
+        "unit_weight_grams": float(product.unit_weight_grams) if product.unit_weight_grams else None,
+        "sku": product.sku,
+        "category": product.category,
+    }
+
+
 # ============ COMMAND POLLING ============
 
 class PendingCommandResponse(BaseModel):
