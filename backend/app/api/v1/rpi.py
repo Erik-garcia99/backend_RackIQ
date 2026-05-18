@@ -1199,6 +1199,66 @@ def update_command_status(
     return {"status": "ok"}
 
 
+@router.post("/rpi/calibration/result")
+def save_calibration_result(
+    body: dict,  # {"mqtt_id":"901b98","status":"tare_done/scale_done","offset":12345,"new_scale":1.234}
+    authorization: Optional[str] = Header(None),
+    db: Session = Depends(get_db)
+):
+    """
+    RPI envía resultado de calibración desde ESP32.
+    
+    Cuerpo esperado:
+    {
+        "mqtt_id": "901b98",
+        "status": "tare_done" | "scale_done",
+        "offset": 12345,
+        "new_scale": 1.2345  // solo para scale_done
+    }
+    """
+    token = extract_token(authorization)
+    org_token = verify_organization_token(db, token)
+
+    mqtt_id = body.get("mqtt_id")
+    status = body.get("status")
+    offset = body.get("offset")
+    new_scale = body.get("new_scale")
+
+    if not mqtt_id or status not in ("tare_done", "scale_done"):
+        raise HTTPException(400, "mqtt_id y status requeridos")
+
+    # Encontrar el shelf por mqtt_id (buscando en esp32_node.mac_address)
+    shelf = db.query(Shelf).join(
+        Esp32Node, Shelf.esp32_node_id == Esp32Node.id
+    ).filter(
+        func.substr(func.replace(Esp32Node.mac_address, ":", ""), -6) == mqtt_id.lower()
+    ).first()
+
+    if not shelf:
+        print(f"[DEBUG] No se encontró shelf para mqtt_id: {mqtt_id}")
+        raise HTTPException(404, f"Shelf no encontrado para mqtt_id: {mqtt_id}")
+
+    print(f"[DEBUG] Guardando resultado de calibración para shelf {shelf.id}: {status}")
+
+    if status == "tare_done":
+        # Tare: guardar offset como tare_weight_grams
+        shelf.tare_weight_grams = float(offset) if offset else 0
+        print(f"[DEBUG] Tare guardado: offset={offset}")
+    
+    elif status == "scale_done" and new_scale:
+        # Scale: guardar factor de escala
+        shelf.scale_factor = float(new_scale)
+        shelf.tare_weight_grams = float(offset) if offset else 0
+        print(f"[DEBUG] Scale guardado: factor={new_scale}, offset={offset}")
+
+    # Actualizar timestamp
+    shelf.last_calibrated_at = func.now()
+    db.commit()
+
+    print(f"[DEBUG] Calibración guardada en BD para shelf {shelf.id}")
+    return {"status": "ok", "shelf_id": str(shelf.id)}
+
+
 @router.post("/calibrate/{shelf_id}/tare")
 def request_tare(
     shelf_id: str,
