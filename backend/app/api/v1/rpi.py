@@ -1110,6 +1110,8 @@ class PendingCommandResponse(BaseModel):
     shelf_id: UUID
     command_type: str
     reference_weight_kg: Optional[float] = None
+    mac_address: Optional[str] = None  # MAC del ESP32 para calcular mqtt_id
+    hx711_pin: Optional[int] = None  # Pin GPIO del HX711 en el ESP32
 
     class Config:
         from_attributes = True
@@ -1140,7 +1142,10 @@ def get_pending_commands(
     print(f"[DEBUG] Gateway encontrado: {gateway_uuid}")
     
     # Comandos pendientes para estantes que pertenecen a ESP32s de este gateway
-    commands = db.query(PendingCommand).join(
+    # JOIN con Esp32Node para obtener el mac_address y con Shelf para obtener hx711_pin
+    commands_with_esp32 = db.query(
+        PendingCommand, Esp32Node.mac_address, Shelf.hx711_pin
+    ).join(
         Shelf, PendingCommand.shelf_id == Shelf.id
     ).join(
         Esp32Node, Shelf.esp32_node_id == Esp32Node.id
@@ -1149,11 +1154,22 @@ def get_pending_commands(
         PendingCommand.status == "pending"
     ).all()
     
-    print(f"[DEBUG] Comandos encontrados: {len(commands)}")
-    for cmd in commands:
-        print(f"[DEBUG] Comando: {cmd.id} - {cmd.command_type} para shelf {cmd.shelf_id}")
-
-    return [PendingCommandResponse.model_validate(cmd) for cmd in commands]
+    print(f"[DEBUG] Comandos encontrados: {len(commands_with_esp32)}")
+    
+    result = []
+    for cmd, mac_address, hx711_pin in commands_with_esp32:
+        print(f"[DEBUG] Comando: {cmd.id} - {cmd.command_type} para shelf {cmd.shelf_id} (MAC: {mac_address}, PIN: {hx711_pin})")
+        cmd_dict = {
+            "id": str(cmd.id),
+            "shelf_id": str(cmd.shelf_id),
+            "command_type": cmd.command_type,
+            "reference_weight_kg": cmd.reference_weight_kg,
+            "mac_address": mac_address,
+            "hx711_pin": hx711_pin
+        }
+        result.append(cmd_dict)
+    
+    return result
 
 
 @router.patch("/commands/{command_id}/status")
