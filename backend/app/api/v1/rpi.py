@@ -1201,7 +1201,7 @@ def update_command_status(
 
 @router.post("/rpi/calibration/result")
 def save_calibration_result(
-    body: dict,  # {"mqtt_id":"901b98","status":"tare_done/scale_done","offset":12345,"new_scale":1.234}
+    body: dict,  # {"mqtt_id":"901b98_4","status":"tare_done/scale_done","offset":12345,"new_scale":1.234}
     authorization: Optional[str] = Header(None),
     db: Session = Depends(get_db)
 ):
@@ -1210,7 +1210,7 @@ def save_calibration_result(
     
     Cuerpo esperado:
     {
-        "mqtt_id": "901b98",
+        "mqtt_id": "901b98_4",  // MAC (últimos 6 hex) + "_" + GPIO pin
         "status": "tare_done" | "scale_done",
         "offset": 12345,
         "new_scale": 1.2345  // solo para scale_done
@@ -1227,15 +1227,24 @@ def save_calibration_result(
     if not mqtt_id or status not in ("tare_done", "scale_done"):
         raise HTTPException(400, "mqtt_id y status requeridos")
 
-    # Encontrar el shelf por mqtt_id (buscando en esp32_node.mac_address)
+    # Parsear mqtt_id: formato "901b98_4" -> MAC="901b98", PIN="4"
+    mqtt_parts = mqtt_id.split("_")
+    if len(mqtt_parts) < 2:
+        raise HTTPException(400, f"mqtt_id inválido: {mqtt_id} (formato esperado: 'AABBCC_PIN')")
+    
+    mac_id = mqtt_parts[0].lower()
+    hx711_pin = mqtt_parts[1]
+
+    # Encontrar el shelf por MAC (últimos 6 caracteres) + PIN
     shelf = db.query(Shelf).join(
         Esp32Node, Shelf.esp32_node_id == Esp32Node.id
     ).filter(
-        func.substr(func.replace(Esp32Node.mac_address, ":", ""), -6) == mqtt_id.lower()
+        func.substr(func.replace(Esp32Node.mac_address, ":", ""), -6) == mac_id,
+        Shelf.hx711_pin == int(hx711_pin)
     ).first()
 
     if not shelf:
-        print(f"[DEBUG] No se encontró shelf para mqtt_id: {mqtt_id}")
+        print(f"[DEBUG] No se encontró shelf para mqtt_id: {mqtt_id} (MAC: {mac_id}, PIN: {hx711_pin})")
         raise HTTPException(404, f"Shelf no encontrado para mqtt_id: {mqtt_id}")
 
     print(f"[DEBUG] Guardando resultado de calibración para shelf {shelf.id}: {status}")
