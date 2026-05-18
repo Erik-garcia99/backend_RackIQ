@@ -1111,6 +1111,9 @@ class PendingCommandResponse(BaseModel):
     command_type: str
     reference_weight_kg: Optional[float] = None
 
+    class Config:
+        from_attributes = True
+
 
 @router.get("/gateway/{gateway_id}/commands")
 def get_pending_commands(
@@ -1129,10 +1132,17 @@ def get_pending_commands(
         raise HTTPException(404, "Gateway no encontrado")
 
     # Comandos pendientes para estantes que pertenecen a ESP32s de este gateway
+    try:
+        gateway_uuid = uuid.UUID(gateway_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="gateway_id inválido")
+    
     commands = db.query(PendingCommand).join(
         Shelf, PendingCommand.shelf_id == Shelf.id
+    ).join(
+        Esp32Node, Shelf.esp32_node_id == Esp32Node.id
     ).filter(
-        Shelf.esp32_node.has(gateway_id=gateway_id),
+        Esp32Node.gateway_id == gateway_uuid,
         PendingCommand.status == "pending"
     ).all()
 
