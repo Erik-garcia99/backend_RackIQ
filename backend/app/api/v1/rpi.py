@@ -664,6 +664,19 @@ def get_branch_esp32_nodes(
                 WeightReading.shelf_id == shelf.id
             ).order_by(WeightReading.recorded_at.desc()).first()
             
+            # Obtener información del producto si existe
+            product_info = None
+            if shelf.product_id:
+                from app.models.product import Product
+                product = db.query(Product).filter(Product.id == shelf.product_id).first()
+                if product:
+                    product_info = {
+                        "id": str(product.id),
+                        "name": product.name,
+                        "sku": product.sku,
+                        "unit_weight_grams": float(product.unit_weight_grams) if product.unit_weight_grams else None,
+                    }
+            
             shelves_data.append({
                 "id": str(shelf.id),
                 "name": shelf.name,
@@ -671,6 +684,7 @@ def get_branch_esp32_nodes(
                 "position": shelf.hx711_position,
                 "is_connected": shelf.is_connected,
                 "product_id": str(shelf.product_id) if shelf.product_id else None,
+                "product": product_info,
                 "max_capacity_grams": float(shelf.max_capacity_grams) if shelf.max_capacity_grams else 0.0,
                 "low_stock_threshold_kg": float(shelf.low_stock_threshold_kg) if shelf.low_stock_threshold_kg else 0.0,
                 "current_weight_grams": float(latest_reading.net_weight_grams) if latest_reading else 0.0,
