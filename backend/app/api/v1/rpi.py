@@ -1175,7 +1175,12 @@ def request_tare(
     """
     Frontend → crea un comando de tara para un estante.
     """
-    shelf = db.query(Shelf).filter(Shelf.id == shelf_id).first()
+    try:
+        sh_id = uuid.UUID(shelf_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="shelf_id inválido")
+    
+    shelf = db.query(Shelf).filter(Shelf.id == sh_id).first()
     if not shelf:
         raise HTTPException(404, "Estante no encontrado")
 
@@ -1185,7 +1190,7 @@ def request_tare(
         raise HTTPException(403, "No tienes acceso a este estante")
 
     cmd = PendingCommand(
-        shelf_id=shelf_id,
+        shelf_id=sh_id,
         command_type="tare"
     )
     db.add(cmd)
@@ -1203,7 +1208,12 @@ def request_scale(
     """
     Frontend → crea un comando de calibración con peso de referencia.
     """
-    shelf = db.query(Shelf).filter(Shelf.id == shelf_id).first()
+    try:
+        sh_id = uuid.UUID(shelf_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="shelf_id inválido")
+    
+    shelf = db.query(Shelf).filter(Shelf.id == sh_id).first()
     if not shelf:
         raise HTTPException(404, "Estante no encontrado")
 
@@ -1216,7 +1226,7 @@ def request_scale(
         raise HTTPException(400, "Peso de referencia inválido")
 
     cmd = PendingCommand(
-        shelf_id=shelf_id,
+        shelf_id=sh_id,
         command_type="scale",
         reference_weight_kg=ref_weight
     )
