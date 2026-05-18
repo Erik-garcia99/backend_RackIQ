@@ -1291,3 +1291,6 @@ def esp32_heartbeat(
     db.commit()
     
     return {"status": "ok", "node_id": str(esp32.id)}
+
+
+# Redeploy force
