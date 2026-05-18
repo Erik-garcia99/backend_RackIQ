@@ -1199,7 +1199,7 @@ def update_command_status(
     return {"status": "ok"}
 
 
-@router.post("/rpi/calibration/result")
+@router.post("/calibration/result")
 def save_calibration_result(
     body: dict,  # {"mqtt_id":"901b98_4","status":"tare_done/scale_done","offset":12345,"new_scale":1.234}
     authorization: Optional[str] = Header(None),
