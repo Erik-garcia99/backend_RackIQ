@@ -1188,13 +1188,17 @@ def update_command_status(
     cmd = db.query(PendingCommand).filter(PendingCommand.id == command_id).first()
     if not cmd:
         raise HTTPException(404, "Comando no encontrado")
-
+    
     new_status = body.get("status")
-    if new_status not in ("executed", "failed"):
+    if new_status not in ("pending", "processing", "executed", "failed"):
         raise HTTPException(400, "Status inválido")
-
+    
     cmd.status = new_status
-    cmd.executed_at = func.now()
+    if new_status in ("executed", "failed"):
+        cmd.executed_at = func.now()
+    if "error_message" in body:
+        cmd.error_message = body["error_message"]
+    
     db.commit()
     return {"status": "ok"}
 
@@ -1250,19 +1254,26 @@ def save_calibration_result(
     print(f"[DEBUG] Guardando resultado de calibración para shelf {shelf.id}: {status}")
 
     if status == "tare_done":
-        # Tare: guardar offset como tare_weight_grams
         shelf.tare_weight_grams = float(offset) if offset else 0
-        print(f"[DEBUG] Tare guardado: offset={offset}")
-    
     elif status == "scale_done" and new_scale:
-        # Scale: guardar factor de escala
         shelf.scale_factor = float(new_scale)
-        shelf.tare_weight_grams = float(offset) if offset else 0
-        print(f"[DEBUG] Scale guardado: factor={new_scale}, offset={offset}")
-
-    # Actualizar timestamp
+        if offset:
+            shelf.tare_weight_grams = float(offset)
     shelf.last_calibrated_at = func.now()
+
     db.commit()
+
+    cmd = db.query(PendingCommand).filter(
+        PendingCommand.shelf_id == shelf.id,
+        PendingCommand.status == "pending"
+    ).order_by(PendingCommand.created_at.desc()).first()
+
+    if cmd:
+        cmd.status = "executed"
+        cmd.executed_at = func.now()
+        db.commit()
+        print(f"[DEBUG] Comando {cmd.id} marcado como executed")
+
 
     print(f"[DEBUG] Calibración guardada en BD para shelf {shelf.id}")
     return {"status": "ok", "shelf_id": str(shelf.id)}
