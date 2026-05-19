@@ -1239,11 +1239,14 @@ def save_calibration_result(
     mac_id = mqtt_parts[0].lower()
     hx711_pin = mqtt_parts[1]
 
-    # Encontrar el shelf por MAC (últimos 6 caracteres) + PIN
+    mac_clean = func.lower(func.replace(Esp32Node.mac_address, ":", ""))
+    # Tomar los últimos 6 caracteres (func.right o func.substring con length)
+    mac_suffix = func.right(mac_clean, 6)
+
     shelf = db.query(Shelf).join(
         Esp32Node, Shelf.esp32_node_id == Esp32Node.id
     ).filter(
-        func.substr(func.replace(Esp32Node.mac_address, ":", ""), -6) == mac_id,
+        mac_suffix == mac_id.lower(),
         Shelf.hx711_pin == int(hx711_pin)
     ).first()
 
