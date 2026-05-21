@@ -61,17 +61,12 @@ def register(body: RegisterRequest, db: Session = Depends(get_db)):
     if not org_token:
         raise HTTPException(status_code=404, detail="Token de organización no válido o inactivo")
 
-    # 3. Buscar un supervisor (admin, owner o superadmin) en la misma organización
-    supervisor = db.query(User).filter(
-        User.organization_id == org_token.organization_id,
-        User.role.in_(["admin", "owner", "superadmin"])
-    ).first()
-
-    # 4. Crear usuario con permisos mínimos y status pending
+    # 3. Crear usuario con permisos mínimos y status pending.
+    # La sucursal y el supervisor se asignan después, desde el flujo de autorización.
     new_user = User(
         organization_id=org_token.organization_id,
         branch_id=None,  # El token no está ligado a una sucursal específica
-        supervisor_id=supervisor.id if supervisor else None,
+        supervisor_id=None,
         email=body.email.lower().strip(),
         name=body.full_name.strip(),
         role="staff",

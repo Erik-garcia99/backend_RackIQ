@@ -7,6 +7,8 @@ class UserResponse(BaseModel):
     name: str
     email: str
     role: str
+    branch_id: Optional[UUID] = None
+    branch_name: Optional[str] = None
     phone_number: Optional[str] = None
     account_status: str
     supervisor_id: Optional[UUID] = None
@@ -29,6 +31,8 @@ class AssignSupervisorRequest(BaseModel):
 
 class AssignBranchRequest(BaseModel):
     branch_id: UUID
+    supervisor_id: Optional[UUID] = None
+    status: Optional[str] = None
 
 class UpdateProfileRequest(BaseModel):
     email: Optional[str] = None

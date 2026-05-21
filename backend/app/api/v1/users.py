@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
+from sqlalchemy import or_
 from uuid import UUID
 from datetime import datetime
 from app.db.database import get_db
@@ -15,56 +16,90 @@ from app.services.firebase_service import send_push_notification
 router = APIRouter(prefix="/users", tags=["users"])
 
 
+SUPERVISOR_ROLES = ["admin", "owner", "superadmin", "superuser", "rrhh", "director", "gerente", "manager"]
+
+
+def serialize_user(db: Session, user: User) -> dict:
+    supervisor_name = None
+    if user.supervisor_id:
+        supervisor = db.query(User).filter(User.id == user.supervisor_id).first()
+        if supervisor:
+            supervisor_name = supervisor.name
+
+    branch_name = None
+    if user.branch_id:
+        branch = db.query(Branch).filter(Branch.id == user.branch_id).first()
+        if branch:
+            branch_name = branch.name
+
+    return {
+        "id": user.id,
+        "name": user.name,
+        "email": user.email,
+        "role": user.role,
+        "branch_id": user.branch_id,
+        "branch_name": branch_name,
+        "phone_number": user.phone_number,
+        "account_status": user.account_status,
+        "supervisor_id": user.supervisor_id,
+        "supervisor_name": supervisor_name,
+    }
+
+
 @router.get("/me", response_model=UserResponse)
 def get_current_user_profile(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """
     Obtiene el perfil del usuario actual.
     """
-    # Obtener nombre del supervisor si existe
-    supervisor_name = None
-    if current_user.supervisor_id:
-        supervisor = db.query(User).filter(User.id == current_user.supervisor_id).first()
-        if supervisor:
-            supervisor_name = supervisor.name
-    
-    # Crear respuesta con datos del usuario actual
-    user_data = {
-        "id": current_user.id,
-        "name": current_user.name,
-        "email": current_user.email,
-        "role": current_user.role,
-        "phone_number": current_user.phone_number,
-        "account_status": current_user.account_status,
-        "supervisor_id": current_user.supervisor_id,
-        "supervisor_name": supervisor_name,
-    }
-    
-    return user_data
+    return serialize_user(db, current_user)
 
 
 @router.get("/my-team", response_model=list[UserResponse])
 def get_my_team(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """
-    Obtiene todos los empleados de la organización.
-    Solo accesible para usuarios con rol 'admin', 'owner', 'superuser' o 'rrhh'.
+    Obtiene los empleados directos a cargo del usuario actual.
+    Solo accesible para usuarios con rol de mando o RRHH.
     """
-    # Verificar permisos: solo roles específicos
-    if current_user.role not in ["admin", "owner", "superuser", "rrhh"]:
+    # Verificar permisos: solo roles que pueden tener gente a cargo
+    if current_user.role not in SUPERVISOR_ROLES:
         raise HTTPException(status_code=403, detail="No tienes permiso para ver el equipo")
     
-    # Obtener todos los empleados de la misma organización
+    # Obtener solo los empleados que reportan directamente al usuario actual
     employees = db.query(User).filter(
-        User.organization_id == current_user.organization_id
+        User.organization_id == current_user.organization_id,
+        User.supervisor_id == current_user.id
     ).all()
     
-    # Enriquecer datos con nombre del supervisor
-    for employee in employees:
-        if employee.supervisor_id:
-            supervisor = db.query(User).filter(User.id == employee.supervisor_id).first()
-            if supervisor:
-                employee.supervisor_name = supervisor.name
-    
-    return employees
+    return [serialize_user(db, employee) for employee in employees]
+
+
+@router.get("/supervisors", response_model=list[UserResponse])
+def get_branch_supervisors(
+    branch_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Devuelve posibles supervisores para una sucursal.
+    """
+    if current_user.role not in ["admin", "owner", "superuser", "rrhh"]:
+        raise HTTPException(status_code=403, detail="No tienes permiso para ver supervisores")
+
+    branch = db.query(Branch).filter(
+        Branch.id == branch_id,
+        Branch.organization_id == current_user.organization_id,
+        Branch.is_active == True
+    ).first()
+    if not branch:
+        raise HTTPException(status_code=404, detail="Sucursal no encontrada")
+
+    supervisors = db.query(User).filter(
+        User.organization_id == current_user.organization_id,
+        User.role.in_(SUPERVISOR_ROLES),
+        or_(User.branch_id == branch_id, User.branch_id.is_(None))
+    ).order_by(User.name.asc()).all()
+
+    return [serialize_user(db, supervisor) for supervisor in supervisors]
 
 
 @router.put("/{user_id}/status", response_model=UpdateUserStatusResponse)
@@ -160,6 +195,9 @@ def assign_supervisor(
     supervisor = db.query(User).filter(User.id == body.supervisor_id).first()
     if not supervisor:
         raise HTTPException(status_code=404, detail="Supervisor no encontrado")
+
+    if supervisor.role not in SUPERVISOR_ROLES:
+        raise HTTPException(status_code=400, detail="El usuario seleccionado no tiene un rol válido para supervisar")
     
     # Validar que el supervisor y el empleado están en la misma organización
     if supervisor.organization_id != target_user.organization_id:
@@ -169,8 +207,7 @@ def assign_supervisor(
     target_user.supervisor_id = body.supervisor_id
     db.commit()
     db.refresh(target_user)
-    
-    # Obtener nombre del supervisor para la respuesta
+
     supervisor_name = supervisor.name if supervisor else None
     
     # Enviar notificación push si el usuario tiene token
@@ -186,15 +223,7 @@ def assign_supervisor(
             }
         )
     
-    return {
-        "id": target_user.id,
-        "name": target_user.name,
-        "email": target_user.email,
-        "role": target_user.role,
-        "account_status": target_user.account_status,
-        "supervisor_id": target_user.supervisor_id,
-        "supervisor_name": supervisor_name,
-    }
+    return serialize_user(db, target_user)
 
 
 @router.put("/{user_id}/assign-branch", response_model=UserResponse)
@@ -228,15 +257,27 @@ def assign_branch(
     
     # Asignar rama/sucursal
     target_user.branch_id = body.branch_id
+
+    if body.supervisor_id:
+        supervisor = db.query(User).filter(User.id == body.supervisor_id).first()
+        if not supervisor:
+            raise HTTPException(status_code=404, detail="Supervisor no encontrado")
+        if supervisor.organization_id != target_user.organization_id:
+            raise HTTPException(status_code=400, detail="El supervisor debe estar en la misma organización")
+        if supervisor.branch_id not in [body.branch_id, None]:
+            raise HTTPException(status_code=400, detail="El supervisor debe pertenecer a la sucursal o ser un supervisor global")
+        if supervisor.role not in SUPERVISOR_ROLES:
+            raise HTTPException(status_code=400, detail="El usuario seleccionado no tiene un rol válido para supervisar")
+        target_user.supervisor_id = body.supervisor_id
+
+    if body.status:
+        valid_statuses = ["active", "pending", "suspended", "deleted"]
+        if body.status not in valid_statuses:
+            raise HTTPException(status_code=400, detail=f"Estado no válido. Debe ser uno de: {valid_statuses}")
+        target_user.account_status = body.status
+
     db.commit()
     db.refresh(target_user)
-    
-    # Obtener nombre del supervisor para la respuesta
-    supervisor_name = None
-    if target_user.supervisor_id:
-        supervisor = db.query(User).filter(User.id == target_user.supervisor_id).first()
-        if supervisor:
-            supervisor_name = supervisor.name
     
     # Enviar notificación push si el usuario tiene token
     if target_user.push_token:
@@ -251,15 +292,7 @@ def assign_branch(
             }
         )
     
-    return {
-        "id": target_user.id,
-        "name": target_user.name,
-        "email": target_user.email,
-        "role": target_user.role,
-        "account_status": target_user.account_status,
-        "supervisor_id": target_user.supervisor_id,
-        "supervisor_name": supervisor_name,
-    }
+    return serialize_user(db, target_user)
 
 
 @router.put("/me/profile", response_model=UpdateProfileResponse)
