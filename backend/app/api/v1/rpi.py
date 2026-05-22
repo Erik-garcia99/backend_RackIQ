@@ -404,7 +404,8 @@ def register_esp32(
                 hx711_position=position,
                 name=shelf_name,
                 is_connected=is_connected,
-                is_active=True
+                is_active=True,
+                max_capacity_grams=20000.0
             )
             db.add(shelf)
             db.flush()
@@ -1028,6 +1029,7 @@ def assign_product_to_shelf(
     # 3. Asignar producto al estante y configurar inventario
     shelf.product_id = new_product.id
     shelf.low_stock_threshold_kg = umbral_kg
+    shelf.max_capacity_grams = 20000.0
     # Si autostock está activado en tu UI, podrías asignarlo a alert_mode: "autostock" o similar
     shelf.updated_at = func.now()
 
