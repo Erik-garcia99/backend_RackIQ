@@ -9,7 +9,7 @@ from app.models.user import User
 from app.db.database import get_db
 from app.models.rpi_models import (
     Gateway, Esp32Node, PendingCommand, Shelf, WeightReading, 
-    StockEvent, AnomalyEvent, Alert
+    StockEvent, AnomalyEvent, Alert, SupplierReceipt
 )
 from app.models.branch import Branch
 from app.models.organization_token import OrganizationToken
@@ -1378,4 +1378,58 @@ def esp32_heartbeat(
     return {"status": "ok", "node_id": str(esp32.id)}
 
 
-# Redeploy force
+@router.post("/branch/{branch_id}/surtido")
+def registrar_surtido(
+    branch_id: str,
+    body: dict,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Registra un surtido de mercancía completo.
+    Recibe proveedor, referencia y lista de items.
+    """
+    proveedor = body.get("proveedor")
+    referencia = body.get("referencia")
+    items = body.get("items", [])
+    
+    if not items:
+        raise HTTPException(status_code=400, detail="El carrito está vacío")
+
+    for item in items:
+        shelf_id = item.get("shelf_id")
+        peso_factura_kg = item.get("pesoTotalKg")
+        peso_sensor_kg = item.get("pesoDetectadoKg") # Lo que leyó el sensor
+        discrepancia_kg = peso_factura_kg - peso_sensor_kg
+        
+        # 1. Crear el recibo del proveedor
+        receipt = SupplierReceipt(
+            shelf_id=uuid.UUID(shelf_id),
+            created_by=current_user.id,
+            declared_weight_grams=peso_factura_kg * 1000,
+            measured_weight_grams=peso_sensor_kg * 1000,
+            discrepancia_grams=discrepancia_kg * 1000,
+            status="accepted" if abs(discrepancia_kg) < 0.5 else "discrepancy" # Tolerancia 500g
+        )
+        db.add(receipt)
+        
+        # 2. Registrar el evento de stock
+        # Obtener el estante actual para registrar peso_before y peso_after
+        shelf = db.query(Shelf).filter(Shelf.id == uuid.UUID(shelf_id)).first()
+        if shelf:
+            peso_actual = shelf.current_weight_grams if hasattr(shelf, 'current_weight_grams') else 0
+            
+            stock_evt = StockEvent(
+                shelf_id=shelf.id,
+                event_type="in",
+                weight_delta_grams=peso_sensor_kg * 1000,
+                units_delta=item.get("cantidad"),
+                weight_before=peso_actual,
+                weight_after=peso_actual + (peso_sensor_kg * 1000)
+            )
+            db.add(stock_evt)
+            
+            # (Opcional) Si tu tabla product tiene cantidad, sumarle aquí
+            
+    db.commit()
+    return {"message": "Surtido registrado exitosamente"}
