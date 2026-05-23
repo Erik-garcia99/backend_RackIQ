@@ -179,3 +179,20 @@ class InfluxConfig(Base):
 
     # TODO: Descomentar cuando gateway pueda tener relación a esta tabla
     # gateway = relationship("Gateway", back_populates="influx_config")
+    
+    
+class SupplierReceipt(Base):
+    """Registro de mercancía recibida por un proveedor"""
+    __tablename__ = "supplier_receipt"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    shelf_id = Column(UUID(as_uuid=True), ForeignKey("shelf.id", ondelete="SET NULL"), nullable=True)
+    created_by = Column(UUID(as_uuid=True), ForeignKey("user.id", ondelete="SET NULL"), nullable=True)
+    declared_weight_grams = Column(Numeric(10, 4))
+    measured_weight_grams = Column(Numeric(10, 4))
+    discrepancy_grams = Column(Numeric(10, 4))
+    status = Column(Text, default="pending", nullable=False)
+    received_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+
+    # Relación con el estante (opcional, pero recomendada)
+    shelf = relationship("Shelf", backref="supplier_receipts")
