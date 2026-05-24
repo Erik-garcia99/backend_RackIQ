@@ -16,6 +16,11 @@ from app.models.organization_token import OrganizationToken
 from pydantic import BaseModel
 from uuid import UUID
 
+from app.models.product import Product
+from sqlalchemy.sql import text
+
+
+
 router = APIRouter(prefix="/rpi", tags=["rpi"])
 
 
@@ -976,8 +981,7 @@ def assign_product_to_shelf(
     if branch.organization_id != current_user.organization_id:
         raise HTTPException(status_code=403, detail="No tienes acceso a este estante")
 
-    from app.models.product import Product
-    from sqlalchemy.sql import text
+    
 
     # Parse body
     nombre = body.get("nombre", "Sin nombre")
@@ -1433,3 +1437,54 @@ def registrar_surtido(
             
     db.commit()
     return {"message": "Surtido registrado exitosamente"}
+    
+    
+    
+@router.post("/supplier/verify")
+def verify_or_create_supplier(
+    body: dict,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Verifica si un proveedor existe por nombre.
+    Si no existe, lo crea automáticamente.
+    """
+    name = body.get("name", "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Nombre del proveedor requerido")
+    
+    # 1. Buscar si el proveedor ya existe (insensible a mayúsculas/minúsculas)
+    sql_check = text("""
+        SELECT id, name 
+        FROM public.supplier 
+        WHERE organization_id = :org_id AND name ILIKE :name
+    """)
+    result = db.execute(sql_check, {"org_id": current_user.organization_id, "name": name}).fetchone()
+    
+    if result:
+        # Ya existe
+        return {
+            "status": "exists", 
+            "supplier_id": str(result[0]), 
+            "name": result[1]
+        }
+    else:
+        # 2. No existe, lo creamos
+        new_id = uuid.uuid4()
+        sql_insert = text("""
+            INSERT INTO public.supplier (id, organization_id, name)
+            VALUES (:id, :org_id, :name)
+        """)
+        db.execute(sql_insert, {
+            "id": new_id, 
+            "org_id": current_user.organization_id, 
+            "name": name
+        })
+        db.commit()
+        
+        return {
+            "status": "created", 
+            "supplier_id": str(new_id), 
+            "name": name
+        }
