@@ -26,12 +26,15 @@ class SaleResponse(BaseModel):
         from_attributes = True
 
 class DashboardStatsResponse(BaseModel):
-    """Response para estadísticas del dashboard"""
-    inventory_value: float = 0.0  # Valor total del inventario
-    sales_today: float = 0.0  # Ventas del día
-    sales_count_today: int = 0  # Cantidad de transacciones hoy
-    products_count: int = 0  # Cantidad de productos
-    low_stock_count: int = 0  # Productos con stock bajo
-    sales_last_7_days: List[dict] = []  # Ventas últimos 7 días
-    daily_sales_data: List[dict] = []  # Datos para gráficos
-    margins: dict = {}  # Márgenes de ganancia
+    inventory_value: float = 0.0
+    sales_today: float = 0.0
+    sales_count_today: int = 0
+    products_count: int = 0
+    low_stock_count: int = 0
+    sales_last_7_days: List[dict] = []
+    daily_sales_data: List[dict] = []
+    margins: dict = {}
+    # NUVOS CAMPOS PARA LAS ALERTAS Y VISTA GLOBAL
+    alerts: List[dict] = [] 
+    branch_statuses: List[dict] = []
+
