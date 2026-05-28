@@ -26,8 +26,94 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/inventory", tags=["inventory"])
 
-# Inicializar detector
-detector = InfluxDetector()
+# Inicializar detector (será tolerante a fallos)
+try:
+    detector = InfluxDetector()
+except Exception as e:
+    logger.warning(f"InfluxDetector inicializado en modo offline: {e}")
+    detector = None
+
+
+@router.get("/branch/{branch_id}/nodes")
+async def get_branch_nodes(
+    branch_id: str,
+    db: Session = Depends(get_db)
+):
+    """
+    Lista todos los nodos (Esp32Node) de una sucursal
+    
+    Devuelve:
+    - Información del nodo
+    - Estantes asociados al nodo
+    - Status (online/offline si InfluxDB está disponible)
+    """
+    try:
+        # Obtener todos los nodos de la sucursal
+        nodes = db.query(Esp32Node)\
+            .filter(Esp32Node.branch_id == branch_id)\
+            .filter(Esp32Node.is_active == True)\
+            .all()
+        
+        if not nodes:
+            return {
+                "branch_id": branch_id,
+                "total_nodes": 0,
+                "nodes": []
+            }
+        
+        result_nodes = []
+        
+        for node in nodes:
+            # Obtener estantes del nodo
+            shelves = db.query(Shelf)\
+                .filter(Shelf.node_id == node.id)\
+                .filter(Shelf.is_active == True)\
+                .all()
+            
+            # Intentar obtener status si InfluxDB está disponible
+            node_status = "unknown"
+            if detector and detector.is_connected:
+                try:
+                    # Chequear si hay datos recientes de cualquier estante del nodo
+                    for shelf in shelves:
+                        weight = detector.get_current_weight(str(shelf.id), timeout_seconds=30)
+                        if weight is not None:
+                            node_status = "online"
+                            break
+                    if node_status == "unknown":
+                        node_status = "offline"
+                except Exception as e:
+                    logger.debug(f"Error obteniendo status de nodo {node.id}: {e}")
+                    node_status = "unknown"
+            
+            result_nodes.append({
+                "id": str(node.id),
+                "name": node.name,
+                "mac_address": node.mac_address,
+                "status": node_status,
+                "shelves_count": len(shelves),
+                "shelves": [
+                    {
+                        "id": str(shelf.id),
+                        "name": shelf.name,
+                        "product": {
+                            "id": str(shelf.product.id) if shelf.product else None,
+                            "name": shelf.product.name if shelf.product else "No asignado"
+                        } if shelf.product else None
+                    }
+                    for shelf in shelves
+                ]
+            })
+        
+        return {
+            "branch_id": branch_id,
+            "total_nodes": len(nodes),
+            "nodes": result_nodes
+        }
+    
+    except Exception as e:
+        logger.error(f"Error listando nodos: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error listando nodos: {str(e)}")
 
 
 @router.get("/shelf/{shelf_id}/status", response_model=ShelfStatus)
@@ -54,6 +140,8 @@ async def get_branch_shelves(
     Obtiene el estado actual de todos los estantes de una sucursal
     
     Combina datos de InfluxDB (peso, status) + Supabase (producto, configuración)
+    
+    Si InfluxDB no está disponible, devuelve status="offline"
     """
     try:
         # Obtener estantes de la sucursal
@@ -72,29 +160,50 @@ async def get_branch_shelves(
         result_shelves = []
         
         for shelf in shelves:
-            # Detectar estado actual
-            detection = detector.detect_movement(db, str(shelf.id))
-            
-            result_shelves.append({
+            shelf_result = {
                 "id": str(shelf.id),
                 "name": shelf.name,
-                "status": detection.get("status"),
+                "status": "unknown",
                 "product": {
                     "id": str(shelf.product.id) if shelf.product else None,
                     "name": shelf.product.name if shelf.product else "No asignado",
                     "unit_weight_grams": float(shelf.product.unit_weight_grams) 
                                         if shelf.product and shelf.product.unit_weight_grams 
                                         else None
-                },
-                "metrics": {
-                    "current_weight_grams": detection.get("current_weight_grams"),
-                    "units_now": detection.get("units_now"),
-                    "units_before": detection.get("units_before"),
-                    "units_removed": detection.get("units_removed")
-                } if detection.get("status") == "online" else None,
-                "movement_detected": detection.get("movement_detected", False),
-                "last_seen": detection.get("last_seen")
-            })
+                } if shelf.product else None,
+                "metrics": None,
+                "movement_detected": False,
+                "last_seen": shelf.last_reading_at.isoformat() if shelf.last_reading_at else None
+            }
+            
+            # Intentar obtener datos de InfluxDB si está disponible
+            if detector and detector.is_connected:
+                try:
+                    # Obtener peso actual
+                    weight = detector.get_current_weight(str(shelf.id), timeout_seconds=30)
+                    
+                    if weight is not None and shelf.product and shelf.product.unit_weight_grams:
+                        # Calcular unidades
+                        units_now = int(weight / float(shelf.product.unit_weight_grams))
+                        units_before = shelf.last_recorded_units or 0
+                        
+                        shelf_result["status"] = "online"
+                        shelf_result["metrics"] = {
+                            "current_weight_grams": weight,
+                            "units_now": units_now,
+                            "units_before": units_before,
+                            "units_removed": units_before - units_now
+                        }
+                    else:
+                        shelf_result["status"] = "offline"
+                
+                except Exception as e:
+                    logger.debug(f"Error obteniendo datos de InfluxDB para {shelf.id}: {e}")
+                    shelf_result["status"] = "offline"
+            else:
+                shelf_result["status"] = "offline"
+            
+            result_shelves.append(shelf_result)
         
         return {
             "branch_id": branch_id,
@@ -103,8 +212,8 @@ async def get_branch_shelves(
         }
     
     except Exception as e:
-        logger.error(f"Error obteniendo estantes: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Error obteniendo estantes: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error obteniendo estantes: {str(e)}")
 
 
 @router.get("/branch/{branch_id}/movements")

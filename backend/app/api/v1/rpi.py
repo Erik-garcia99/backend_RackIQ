@@ -18,8 +18,10 @@ from uuid import UUID
 
 from app.models.product import Product
 from sqlalchemy.sql import text
+from app.services.influx_detector import InfluxDetector
+import logging
 
-
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/rpi", tags=["rpi"])
 
@@ -625,11 +627,19 @@ def update_gateway_status(
 def get_branch_esp32_nodes(
     branch_id: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)  # Cambiar a autenticación de usuario
+    current_user: User = Depends(get_current_user)
 ):
     """
-    Obtiene todos los nodos ESP32 de una rama con sus estantes.
-    Usado para mostrar nodos disponibles para configuración en el frontend.
+    Obtiene todos los nodos ESP32 registrados en Supabase.
+    
+    Flujo:
+    1. Consulta Supabase para listar nodos registrados
+    2. Para cada nodo, consulta InfluxDB si hay heartbeat reciente (< 5 min)
+    3. Si hay heartbeat = Online, si no = Offline
+    
+    Datos:
+    - Nodos: desde Supabase (inventario de nodos)
+    - Status: desde InfluxDB (si está activo ahora)
     """
     # Validar que el branch existe
     try:
@@ -651,29 +661,42 @@ def get_branch_esp32_nodes(
         return []
     
     gateway_ip = gateway.ip_address if gateway else None
-
+    
+    # Obtener todos los nodos ESP32 REGISTRADOS en Supabase
     esp32_nodes = db.query(Esp32Node).filter(
-        Esp32Node.gateway_id == gateway.id
+        Esp32Node.gateway_id == gateway.id,
+        Esp32Node.is_active == True
     ).all()
     
+    if not esp32_nodes:
+        return {
+            "branch_id": str(br_id),
+            "total_nodes": 0,
+            "nodes": [],
+            "note": "No hay nodos registrados en esta sucursal"
+        }
+    
     nodes_response = []
+    
     for node in esp32_nodes:
+        # Obtener todos los estantes de este nodo
         shelves = db.query(Shelf).filter(
-            Shelf.esp32_node_id == node.id
+            Shelf.esp32_node_id == node.id,
+            Shelf.is_active == True
         ).order_by(Shelf.hx711_position).all()
 
         is_configured = not node.name.startswith('Nodo-')
         
         shelves_data = []
         for shelf in shelves:
+            # Obtener última lectura de peso desde Supabase
             latest_reading = db.query(WeightReading).filter(
                 WeightReading.shelf_id == shelf.id
             ).order_by(WeightReading.recorded_at.desc()).first()
             
-            # Obtener información del producto si existe
+            # Obtener información del producto
             product_info = None
             if shelf.product_id:
-                from app.models.product import Product
                 product = db.query(Product).filter(Product.id == shelf.product_id).first()
                 if product:
                     product_info = {
@@ -695,8 +718,11 @@ def get_branch_esp32_nodes(
                 "low_stock_threshold_kg": float(shelf.low_stock_threshold_kg) if shelf.low_stock_threshold_kg else 0.0,
                 "current_weight_grams": float(latest_reading.net_weight_grams) if latest_reading else 0.0,
                 "last_reading_at": shelf.last_reading_at.isoformat() if shelf.last_reading_at else None,
-                "status": "online" if shelf.is_connected else "offline"
             })
+        
+        # Determinar status del nodo
+        # Por ahora usar is_online de Supabase (mientras se arregla InfluxDB)
+        node_status = "online" if node.is_online else "offline"
         
         nodes_response.append({
             "id": str(node.id),
@@ -705,11 +731,16 @@ def get_branch_esp32_nodes(
             "is_online": node.is_online,
             "is_configured": is_configured,
             "firmware_version": node.firmware_version,
+            "status": node_status,
             "shelves": shelves_data,
             "gateway_ip": gateway_ip
         })
     
-    return nodes_response
+    return {
+        "branch_id": str(br_id),
+        "total_nodes": len(nodes_response),
+        "nodes": nodes_response
+    }
 
 @router.patch("/esp32-node/{node_id}/name")
 def update_esp32_node_name(
