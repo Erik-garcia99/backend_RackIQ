@@ -728,12 +728,26 @@ def get_branch_esp32_nodes(
                         "unit_weight_grams": float(product.unit_weight_grams) if product.unit_weight_grams else None,
                     }
             
+            # Determinar status del estante: online si última lectura es reciente (< 30 segundos)
+            shelf_status = "offline"
+            if shelf.last_reading_at:
+                try:
+                    # Asegurar que ambos timestamps sean naive (sin timezone)
+                    last_reading_naive = shelf.last_reading_at.replace(tzinfo=None) if shelf.last_reading_at.tzinfo else shelf.last_reading_at
+                    time_since_reading = datetime.utcnow() - last_reading_naive
+                    if time_since_reading.total_seconds() < 30:
+                        shelf_status = "online"
+                except Exception as e:
+                    logger.warning(f"Error calculando status de estante {shelf.id}: {str(e)}")
+                    shelf_status = "offline"
+            
             shelves_data.append({
                 "id": str(shelf.id),
                 "name": shelf.name,
                 "pin": shelf.hx711_pin,
                 "position": shelf.hx711_position,
                 "is_connected": shelf.is_connected,
+                "status": shelf_status,
                 "product_id": str(shelf.product_id) if shelf.product_id else None,
                 "product": product_info,
                 "max_capacity_grams": float(shelf.max_capacity_grams) if shelf.max_capacity_grams else 0.0,
