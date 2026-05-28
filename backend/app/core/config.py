@@ -43,6 +43,25 @@ class Settings(BaseSettings):
     )
     ALGORITHM: str = os.getenv("ALGORITHM", "HS256")
     
+    # InfluxDB - Para datos en tiempo real
+    INFLUX_URL: str = os.getenv(
+        "INFLUX_URL",
+        "https://us-east-1-1.aws.cloud2.influxdata.com"
+    )
+    INFLUX_TOKEN: str = os.getenv("INFLUX_TOKEN", "")
+    INFLUX_ORG: str = os.getenv("INFLUX_ORG", "rackiq")
+    INFLUX_BUCKET: str = os.getenv("INFLUX_BUCKET", "inventario_estantes")
+    
+    # Celery - Para tareas asincrónicas
+    CELERY_BROKER_URL: str = os.getenv(
+        "CELERY_BROKER_URL",
+        "redis://localhost:6379/0"
+    )
+    CELERY_RESULT_BACKEND: str = os.getenv(
+        "CELERY_RESULT_BACKEND",
+        "redis://localhost:6379/0"
+    )
+    
     # Entorno
     ENVIRONMENT: str = os.getenv("ENVIRONMENT", "development")
     DEBUG: bool = os.getenv("DEBUG", "False").lower() == "true"

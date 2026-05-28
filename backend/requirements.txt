@@ -9,3 +9,6 @@ python-jose[cryptography]==3.3.0
 python-multipart==0.0.9
 bcrypt==4.0.1
 firebase-admin==6.5.0
+influxdb-client==1.36.0
+celery==5.3.4
+redis==5.0.1

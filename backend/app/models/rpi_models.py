@@ -63,6 +63,7 @@ class Shelf(Base):
     hx711_position = Column(SmallInteger, nullable=False)  # Posición (1-5) para orden
     is_connected = Column(Boolean, default=False)  # Si el HX711 está conectado
     last_reading_at = Column(TIMESTAMP(timezone=True))  # Última lectura recibida
+    last_recorded_units = Column(Integer, default=0)  # Últimas unidades registradas para detección de cambios
     
     tare_weight_grams = Column(Numeric(10, 4), default=0)
     scale_factor = Column(Numeric(14, 8), default=1)
