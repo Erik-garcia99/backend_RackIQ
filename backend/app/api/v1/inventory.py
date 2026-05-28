@@ -185,7 +185,8 @@ async def get_branch_shelves(
                     if weight is not None and shelf.product and shelf.product.unit_weight_grams:
                         # Calcular unidades
                         units_now = int(weight / float(shelf.product.unit_weight_grams))
-                        units_before = shelf.last_recorded_units or 0
+                        # TODO: Usar last_recorded_units cuando exista en BD
+                        units_before = 0  # shelf.last_recorded_units or 0
                         
                         shelf_result["status"] = "online"
                         shelf_result["metrics"] = {

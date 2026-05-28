@@ -139,7 +139,9 @@ class InfluxDetector:
         units_now = int(current_weight / unit_weight)
         
         # 4. Obtener unidades registradas anteriormente
-        units_before = shelf.last_recorded_units or 0
+        # TODO: Usar last_recorded_units una vez que la migración de BD se cree
+        # Por ahora, asumimos 0 como referencia (simple detector)
+        units_before = 0  # shelf.last_recorded_units or 0
         
         # 5. Calcular delta (cambio)
         units_removed = units_before - units_now
@@ -183,9 +185,10 @@ class InfluxDetector:
                 
                 db.add(movement)
                 
-                # Actualizar las unidades registradas en el estante
-                shelf.last_recorded_units = units_now
+                # Actualizar el timestamp de lectura
                 shelf.last_reading_at = datetime.utcnow()
+                # TODO: Descomentar cuando se agregue last_recorded_units a BD
+                # shelf.last_recorded_units = units_now
                 
                 db.commit()
                 
@@ -253,7 +256,7 @@ class InfluxDetector:
         Cambia el producto de un estante sin generar evento falso
         
         Obtiene el peso actual, calcula unidades con el NUEVO producto,
-        y actualiza last_recorded_units correctamente.
+y registra movimientos sin depender de last_recorded_units.
         
         Args:
             db: Sesión de base de datos
