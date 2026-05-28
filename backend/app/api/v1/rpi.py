@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, Header
 from sqlalchemy.orm import Session
 from sqlalchemy.sql import func
 from typing import List, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 from app.core.security import get_current_user
 from app.models.user import User
 from app.db.database import get_db
@@ -255,13 +255,20 @@ def receive_weight_reading(
             
             # 2. Si pasaron más de 5 minutos desde la última actualización
             elif esp32_node.last_heartbeat_at:
-                time_since_last = datetime.utcnow() - (
-                    esp32_node.last_heartbeat_at.replace(tzinfo=None) 
-                    if esp32_node.last_heartbeat_at.tzinfo 
-                    else esp32_node.last_heartbeat_at
-                )
-                if time_since_last.total_seconds() > 300:  # 5 minutos
-                    should_update_heartbeat = True
+                try:
+                    current_time = datetime.now(timezone.utc)
+                    
+                    # Si last_heartbeat_at es naive, asumir que es UTC
+                    if esp32_node.last_heartbeat_at.tzinfo is None:
+                        last_heartbeat = esp32_node.last_heartbeat_at.replace(tzinfo=timezone.utc)
+                    else:
+                        last_heartbeat = esp32_node.last_heartbeat_at.astimezone(timezone.utc)
+                    
+                    time_since_last = (current_time - last_heartbeat).total_seconds()
+                    if time_since_last > 300:  # 5 minutos
+                        should_update_heartbeat = True
+                except Exception as e:
+                    logger.warning(f"Error calculando tiempo desde último heartbeat: {str(e)}")
             
             if should_update_heartbeat:
                 esp32_node.last_heartbeat_at = func.now()
@@ -728,15 +735,27 @@ def get_branch_esp32_nodes(
                         "unit_weight_grams": float(product.unit_weight_grams) if product.unit_weight_grams else None,
                     }
             
-            # Determinar status del estante: online si última lectura es reciente (< 30 segundos)
+            # Determinar status del estante: online si última lectura es reciente (< 60 segundos)
             shelf_status = "offline"
             if shelf.last_reading_at:
                 try:
-                    # Asegurar que ambos timestamps sean naive (sin timezone)
-                    last_reading_naive = shelf.last_reading_at.replace(tzinfo=None) if shelf.last_reading_at.tzinfo else shelf.last_reading_at
-                    time_since_reading = datetime.utcnow() - last_reading_naive
-                    if time_since_reading.total_seconds() < 30:
+                    # Usar UTC-aware timestamps para comparación confiable
+                    current_time = datetime.now(timezone.utc)
+                    
+                    # Si last_reading_at es naive, asumir que es UTC
+                    if shelf.last_reading_at.tzinfo is None:
+                        last_reading = shelf.last_reading_at.replace(tzinfo=timezone.utc)
+                    else:
+                        last_reading = shelf.last_reading_at.astimezone(timezone.utc)
+                    
+                    time_since_reading = (current_time - last_reading).total_seconds()
+                    
+                    # Online si última lectura fue hace menos de 60 segundos
+                    if time_since_reading < 60:
                         shelf_status = "online"
+                    
+                    logger.debug(f"[Shelf Status] {shelf.name}: {time_since_reading:.1f}s ago → {shelf_status}")
+                    
                 except Exception as e:
                     logger.warning(f"Error calculando status de estante {shelf.id}: {str(e)}")
                     shelf_status = "offline"
@@ -757,13 +776,31 @@ def get_branch_esp32_nodes(
             })
         
         # Determinar status del nodo basado en last_heartbeat_at (Supabase)
-        # Si recibió datos en los últimos 30 segundos → Online
+        # Si recibió datos en los últimos 60 segundos → Online
         # Si no → Offline
         node_status = "offline"
         if node.last_heartbeat_at:
-            time_since_heartbeat = datetime.utcnow() - node.last_heartbeat_at.replace(tzinfo=None) if node.last_heartbeat_at.tzinfo else datetime.utcnow() - node.last_heartbeat_at
-            if time_since_heartbeat.total_seconds() < 30:  # Menos de 30 segundos
-                node_status = "online"
+            try:
+                # Usar UTC-aware timestamps para comparación confiable
+                current_time = datetime.now(timezone.utc)
+                
+                # Si last_heartbeat_at es naive, asumir que es UTC
+                if node.last_heartbeat_at.tzinfo is None:
+                    last_heartbeat = node.last_heartbeat_at.replace(tzinfo=timezone.utc)
+                else:
+                    last_heartbeat = node.last_heartbeat_at.astimezone(timezone.utc)
+                
+                time_since_heartbeat = (current_time - last_heartbeat).total_seconds()
+                
+                # Online si último heartbeat fue hace menos de 60 segundos
+                if time_since_heartbeat < 60:
+                    node_status = "online"
+                
+                logger.debug(f"[Node Status] {node.name}: {time_since_heartbeat:.1f}s ago → {node_status}")
+                
+            except Exception as e:
+                logger.warning(f"Error calculando status del nodo {node.id}: {str(e)}")
+                node_status = "offline"
         
         nodes_response.append({
             "id": str(node.id),
