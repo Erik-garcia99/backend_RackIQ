@@ -243,6 +243,30 @@ def receive_weight_reading(
     shelf.is_connected = True
     shelf.last_reading_at = func.now()
     
+    # Actualizar último heartbeat del nodo ESP32 SOLO si cambió de estado o pasaron 5 minutos
+    if shelf.esp32_node_id:
+        esp32_node = db.query(Esp32Node).filter(Esp32Node.id == shelf.esp32_node_id).first()
+        if esp32_node:
+            should_update_heartbeat = False
+            
+            # 1. Si está offline → cambio a online (transición de estado)
+            if not esp32_node.is_online:
+                should_update_heartbeat = True
+            
+            # 2. Si pasaron más de 5 minutos desde la última actualización
+            elif esp32_node.last_heartbeat_at:
+                time_since_last = datetime.utcnow() - (
+                    esp32_node.last_heartbeat_at.replace(tzinfo=None) 
+                    if esp32_node.last_heartbeat_at.tzinfo 
+                    else esp32_node.last_heartbeat_at
+                )
+                if time_since_last.total_seconds() > 300:  # 5 minutos
+                    should_update_heartbeat = True
+            
+            if should_update_heartbeat:
+                esp32_node.last_heartbeat_at = func.now()
+                esp32_node.is_online = True
+    
     db.commit()
     
     return {"status": "received", "reading_id": str(reading.id)}
@@ -718,9 +742,14 @@ def get_branch_esp32_nodes(
                 "last_reading_at": shelf.last_reading_at.isoformat() if shelf.last_reading_at else None,
             })
         
-        # Determinar status del nodo
-        # Por ahora usar is_online de Supabase (mientras se arregla InfluxDB)
-        node_status = "online" if node.is_online else "offline"
+        # Determinar status del nodo basado en last_heartbeat_at (Supabase)
+        # Si recibió datos en los últimos 30 segundos → Online
+        # Si no → Offline
+        node_status = "offline"
+        if node.last_heartbeat_at:
+            time_since_heartbeat = datetime.utcnow() - node.last_heartbeat_at.replace(tzinfo=None) if node.last_heartbeat_at.tzinfo else datetime.utcnow() - node.last_heartbeat_at
+            if time_since_heartbeat.total_seconds() < 30:  # Menos de 30 segundos
+                node_status = "online"
         
         nodes_response.append({
             "id": str(node.id),
