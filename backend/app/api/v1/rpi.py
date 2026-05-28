@@ -664,8 +664,7 @@ def get_branch_esp32_nodes(
     
     # Obtener todos los nodos ESP32 REGISTRADOS en Supabase
     esp32_nodes = db.query(Esp32Node).filter(
-        Esp32Node.gateway_id == gateway.id,
-        Esp32Node.is_active == True
+        Esp32Node.gateway_id == gateway.id
     ).all()
     
     if not esp32_nodes:
@@ -681,8 +680,7 @@ def get_branch_esp32_nodes(
     for node in esp32_nodes:
         # Obtener todos los estantes de este nodo
         shelves = db.query(Shelf).filter(
-            Shelf.esp32_node_id == node.id,
-            Shelf.is_active == True
+            Shelf.esp32_node_id == node.id
         ).order_by(Shelf.hx711_position).all()
 
         is_configured = not node.name.startswith('Nodo-')
