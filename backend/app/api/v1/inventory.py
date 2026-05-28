@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
-from app.db.session import get_db
+from app.db.database import get_db
 from app.core.config import settings
 from app.models.rpi_models import Shelf, Esp32Node, Gateway
 from app.models.product import Product
