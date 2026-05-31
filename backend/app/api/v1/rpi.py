@@ -654,6 +654,154 @@ def update_gateway_status(
 
 # ============ ENDPOINTS PARA NODOS Y ESTANTES ============
 
+@router.get("/organization/esp32-nodes")
+def get_organization_esp32_nodes(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Obtiene TODOS los nodos ESP32 de TODAS las sucursales de la organización.
+    
+    Retorna:
+    - Nodos de TODAS las sucursales de la organización del usuario
+    - Incluye información de estantes, status, y últimas lecturas
+    """
+    # Obtener todas las ramas de la organización
+    branches = db.query(Branch).filter(
+        Branch.organization_id == current_user.organization_id,
+        Branch.is_active == True
+    ).all()
+    
+    if not branches:
+        return {
+            "organization_id": str(current_user.organization_id),
+            "total_branches": 0,
+            "total_nodes": 0,
+            "nodes": [],
+            "note": "No hay sucursales registradas en la organización"
+        }
+    
+    nodes_response = []
+    
+    # Iterar sobre todas las ramas
+    for branch in branches:
+        # Obtener el gateway de cada rama
+        gateway = db.query(Gateway).filter(Gateway.branch_id == branch.id).first()
+        if not gateway:
+            continue
+        
+        # Obtener todos los nodos ESP32 de esta rama
+        esp32_nodes = db.query(Esp32Node).filter(
+            Esp32Node.gateway_id == gateway.id
+        ).all()
+        
+        for node in esp32_nodes:
+            # Obtener todos los estantes de este nodo
+            shelves = db.query(Shelf).filter(
+                Shelf.esp32_node_id == node.id
+            ).order_by(Shelf.hx711_position).all()
+
+            is_configured = not node.name.startswith('Nodo-')
+            
+            shelves_data = []
+            for shelf in shelves:
+                # Obtener última lectura de peso desde Supabase
+                latest_reading = db.query(WeightReading).filter(
+                    WeightReading.shelf_id == shelf.id
+                ).order_by(WeightReading.recorded_at.desc()).first()
+                
+                # Obtener información del producto
+                product_info = None
+                if shelf.product_id:
+                    product = db.query(Product).filter(Product.id == shelf.product_id).first()
+                    if product:
+                        product_info = {
+                            "id": str(product.id),
+                            "name": product.name,
+                            "sku": product.sku,
+                            "unit_weight_grams": float(product.unit_weight_grams) if product.unit_weight_grams else None,
+                        }
+                
+                # Determinar status del estante: online si última lectura es reciente (< 60 segundos)
+                shelf_status = "offline"
+                if shelf.last_reading_at:
+                    try:
+                        # Usar UTC-aware timestamps para comparación confiable
+                        current_time = datetime.now(timezone.utc)
+                        
+                        # Si last_reading_at es naive, asumir que es UTC
+                        if shelf.last_reading_at.tzinfo is None:
+                            last_reading = shelf.last_reading_at.replace(tzinfo=timezone.utc)
+                        else:
+                            last_reading = shelf.last_reading_at.astimezone(timezone.utc)
+                        
+                        time_since_reading = (current_time - last_reading).total_seconds()
+                        
+                        # Online si última lectura fue hace menos de 60 segundos
+                        if time_since_reading < 60:
+                            shelf_status = "online"
+                        
+                    except Exception as e:
+                        logger.warning(f"Error calculando status de estante {shelf.id}: {str(e)}")
+                        shelf_status = "offline"
+                
+                shelves_data.append({
+                    "id": str(shelf.id),
+                    "name": shelf.name,
+                    "pin": shelf.hx711_pin,
+                    "position": shelf.hx711_position,
+                    "is_connected": shelf.is_connected,
+                    "status": shelf_status,
+                    "product_id": str(shelf.product_id) if shelf.product_id else None,
+                    "product": product_info,
+                    "max_capacity_grams": float(shelf.max_capacity_grams) if shelf.max_capacity_grams else 0.0,
+                    "low_stock_threshold_kg": float(shelf.low_stock_threshold_kg) if shelf.low_stock_threshold_kg else 0.0,
+                    "current_weight_grams": float(latest_reading.net_weight_grams) if latest_reading else 0.0,
+                    "last_reading_at": shelf.last_reading_at.isoformat() if shelf.last_reading_at else None,
+                })
+            
+            # Determinar status del nodo basado en last_heartbeat_at (Supabase)
+            node_status = "offline"
+            if node.last_heartbeat_at:
+                try:
+                    # Usar UTC-aware timestamps para comparación confiable
+                    current_time = datetime.now(timezone.utc)
+                    
+                    # Si last_heartbeat_at es naive, asumir que es UTC
+                    if node.last_heartbeat_at.tzinfo is None:
+                        last_heartbeat = node.last_heartbeat_at.replace(tzinfo=timezone.utc)
+                    else:
+                        last_heartbeat = node.last_heartbeat_at.astimezone(timezone.utc)
+                    
+                    time_since_heartbeat = (current_time - last_heartbeat).total_seconds()
+                    
+                    # Online si último heartbeat fue hace menos de 60 segundos
+                    if time_since_heartbeat < 60:
+                        node_status = "online"
+                    
+                except Exception as e:
+                    logger.warning(f"Error calculando status de nodo {node.id}: {str(e)}")
+                    node_status = "offline"
+            
+            nodes_response.append({
+                "id": str(node.id),
+                "name": node.name,
+                "mac_address": node.mac_address,
+                "is_configured": is_configured,
+                "status": node_status,
+                "branch_id": str(branch.id),
+                "branch_name": branch.name,
+                "shelves": shelves_data,
+                "last_heartbeat_at": node.last_heartbeat_at.isoformat() if node.last_heartbeat_at else None,
+            })
+    
+    return {
+        "organization_id": str(current_user.organization_id),
+        "total_branches": len(branches),
+        "total_nodes": len(nodes_response),
+        "nodes": nodes_response
+    }
+
 @router.get("/branch/{branch_id}/esp32-nodes")
 def get_branch_esp32_nodes(
     branch_id: str,
