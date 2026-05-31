@@ -1197,6 +1197,29 @@ def get_shelf_full(
                 "category": product.category,
             }
     
+    # Determinar status del estante: online si última lectura es reciente (< 60 segundos)
+    shelf_status = "offline"
+    if shelf.last_reading_at:
+        try:
+            # Usar UTC-aware timestamps para comparación confiable
+            current_time = datetime.now(timezone.utc)
+            
+            # Si last_reading_at es naive, asumir que es UTC
+            if shelf.last_reading_at.tzinfo is None:
+                last_reading = shelf.last_reading_at.replace(tzinfo=timezone.utc)
+            else:
+                last_reading = shelf.last_reading_at.astimezone(timezone.utc)
+            
+            time_since_reading = (current_time - last_reading).total_seconds()
+            
+            # Online si última lectura fue hace menos de 60 segundos
+            if time_since_reading < 60:
+                shelf_status = "online"
+            
+        except Exception as e:
+            logger.warning(f"Error calculando status de estante {shelf.id}: {str(e)}")
+            shelf_status = "offline"
+            
     return {
         "id": str(shelf.id),
         "name": shelf.name,
@@ -1205,6 +1228,7 @@ def get_shelf_full(
         "hx711_pin": shelf.hx711_pin,
         "hx711_position": shelf.hx711_position,
         "is_connected": shelf.is_connected,
+        "status": shelf_status,
         "last_reading_at": shelf.last_reading_at.isoformat() if shelf.last_reading_at else None,
         "tare_weight_grams": float(shelf.tare_weight_grams) if shelf.tare_weight_grams else 0,
         "scale_factor": float(shelf.scale_factor) if shelf.scale_factor else 1,
