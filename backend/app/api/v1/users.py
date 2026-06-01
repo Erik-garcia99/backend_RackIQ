@@ -64,11 +64,17 @@ def get_my_team(db: Session = Depends(get_db), current_user: User = Depends(get_
     if current_user.role not in SUPERVISOR_ROLES:
         raise HTTPException(status_code=403, detail="No tienes permiso para ver el equipo")
     
-    # Obtener solo los empleados que reportan directamente al usuario actual
-    employees = db.query(User).filter(
-        User.organization_id == current_user.organization_id,
-        User.supervisor_id == current_user.id
-    ).all()
+    # Obtener empleados: roles de alto nivel ven todo, otros ven solo su equipo directo
+    if current_user.role in ["rrhh", "owner", "superuser", "superadmin"]:
+        employees = db.query(User).filter(
+            User.organization_id == current_user.organization_id,
+            User.id != current_user.id
+        ).all()
+    else:
+        employees = db.query(User).filter(
+            User.organization_id == current_user.organization_id,
+            User.supervisor_id == current_user.id
+        ).all()
     
     return [serialize_user(db, employee) for employee in employees]
 
@@ -119,11 +125,14 @@ def update_user_status(
     if not target_user:
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
     
-    # Verificar permisos: solo admin, owner o superadmin
-    is_admin = current_user.role in ["admin", "owner", "superadmin"]
-    
-    if not is_admin:
+    # Verificar permisos: admin, owner, superadmin, superuser, rrhh
+    allowed_roles = ["admin", "owner", "superadmin", "superuser", "rrhh"]
+    if current_user.role not in allowed_roles:
         raise HTTPException(status_code=403, detail="No tienes permiso para actualizar este usuario")
+    
+    # Restricción: solo owner, superadmin, superuser, rrhh pueden eliminar
+    if body.status == "deleted" and current_user.role not in ["owner", "superadmin", "superuser", "rrhh"]:
+        raise HTTPException(status_code=403, detail="No tienes permiso para eliminar la cuenta de los empleados")
     
     # Validar estado
     valid_statuses = ["active", "pending", "suspended", "deleted"]
@@ -234,18 +243,33 @@ def assign_branch(
     current_user: User = Depends(get_current_user)
 ):
     """
-    Asigna una sucursal a un empleado.
-    Solo usuarios con rol 'rrhh', 'owner' o 'superuser' pueden hacer esto.
+    Asigna sucursal, supervisor, estado y rol a un empleado.
     """
-    # Verificar permisos: solo rrhh, owner, superuser
-    if current_user.role not in ["rrhh", "owner", "superuser"]:
-        raise HTTPException(status_code=403, detail="No tienes permiso para asignar sucursales")
-    
     # Obtener el empleado a asignar
     target_user = db.query(User).filter(User.id == user_id).first()
     if not target_user:
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
-    
+
+    # Verificar permisos generales para el endpoint assign-branch
+    allowed_roles = ["rrhh", "owner", "superuser", "superadmin", "admin", "gerente", "manager", "director"]
+    if current_user.role not in allowed_roles:
+        raise HTTPException(status_code=403, detail="No tienes permiso para realizar esta acción")
+
+    # Si el rol actual no tiene acceso total (rrhh, owner, superuser)
+    if current_user.role not in ["rrhh", "owner", "superuser", "superadmin"]:
+        # No pueden cambiar de sucursal
+        if body.branch_id != target_user.branch_id:
+            raise HTTPException(status_code=403, detail="No tienes permiso para cambiar la sucursal de los empleados")
+        # No pueden cambiar de supervisor
+        if body.supervisor_id is not None and body.supervisor_id != target_user.supervisor_id:
+            raise HTTPException(status_code=403, detail="No tienes permiso para cambiar el supervisor de los empleados")
+        # No pueden cambiar el rol (elevar permisos)
+        if body.role is not None and body.role != target_user.role:
+            raise HTTPException(status_code=403, detail="No tienes permiso para cambiar el rol de los empleados")
+        # No pueden eliminar la cuenta
+        if body.status == "deleted":
+            raise HTTPException(status_code=403, detail="No tienes permiso para eliminar la cuenta de los empleados")
+
     # Validar que la rama/sucursal existe
     branch = db.query(Branch).filter(Branch.id == body.branch_id).first()
     if not branch:
@@ -255,10 +279,12 @@ def assign_branch(
     if branch.organization_id != target_user.organization_id:
         raise HTTPException(status_code=400, detail="La sucursal debe estar en la misma organización")
     
-    # Asignar rama/sucursal
-    target_user.branch_id = body.branch_id
+    # Asignar rama/sucursal (si cambia)
+    if target_user.branch_id != body.branch_id:
+        target_user.branch_id = body.branch_id
 
-    if body.supervisor_id:
+    # Asignar supervisor (si se proporciona y cambia)
+    if body.supervisor_id and body.supervisor_id != target_user.supervisor_id:
         supervisor = db.query(User).filter(User.id == body.supervisor_id).first()
         if not supervisor:
             raise HTTPException(status_code=404, detail="Supervisor no encontrado")
@@ -270,11 +296,19 @@ def assign_branch(
             raise HTTPException(status_code=400, detail="El usuario seleccionado no tiene un rol válido para supervisar")
         target_user.supervisor_id = body.supervisor_id
 
-    if body.status:
+    # Asignar estado (si se proporciona y cambia)
+    if body.status and body.status != target_user.account_status:
         valid_statuses = ["active", "pending", "suspended", "deleted"]
         if body.status not in valid_statuses:
             raise HTTPException(status_code=400, detail=f"Estado no válido. Debe ser uno de: {valid_statuses}")
         target_user.account_status = body.status
+
+    # Asignar rol (si se proporciona y cambia)
+    if body.role and body.role != target_user.role:
+        valid_roles = ["staff", "admin", "owner", "superuser", "rrhh", "gerente", "manager", "director"]
+        if body.role not in valid_roles:
+            raise HTTPException(status_code=400, detail=f"Rol no válido. Debe ser uno de: {valid_roles}")
+        target_user.role = body.role
 
     db.commit()
     db.refresh(target_user)

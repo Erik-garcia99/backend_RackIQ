@@ -33,6 +33,7 @@ class AssignBranchRequest(BaseModel):
     branch_id: UUID
     supervisor_id: Optional[UUID] = None
     status: Optional[str] = None
+    role: Optional[str] = None
 
 class UpdateProfileRequest(BaseModel):
     email: Optional[str] = None
