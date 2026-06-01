@@ -66,15 +66,21 @@ def get_my_team(db: Session = Depends(get_db), current_user: User = Depends(get_
     
     # Obtener empleados: roles de alto nivel ven todo, otros ven solo su equipo directo
     if current_user.role in ["rrhh", "owner", "superuser", "superadmin"]:
-        employees = db.query(User).filter(
+        query = db.query(User).filter(
             User.organization_id == current_user.organization_id,
             User.id != current_user.id
-        ).all()
+        )
+        if current_user.role != "superuser":
+            query = query.filter(User.role != "superuser")
+        employees = query.all()
     else:
-        employees = db.query(User).filter(
+        query = db.query(User).filter(
             User.organization_id == current_user.organization_id,
             User.supervisor_id == current_user.id
-        ).all()
+        )
+        if current_user.role != "superuser":
+            query = query.filter(User.role != "superuser")
+        employees = query.all()
     
     return [serialize_user(db, employee) for employee in employees]
 
@@ -125,6 +131,15 @@ def update_user_status(
     if not target_user:
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
     
+    # Restricciones jerárquicas de edición:
+    # 1. Un superusuario solo puede ser editado por otro superusuario
+    if target_user.role == "superuser" and current_user.role != "superuser":
+        raise HTTPException(status_code=403, detail="No tienes permiso para modificar a un superusuario")
+
+    # 2. Un owner solo puede ser editado por un owner o un superusuario
+    if target_user.role == "owner" and current_user.role not in ["owner", "superuser", "superadmin"]:
+        raise HTTPException(status_code=403, detail="No tienes permiso para modificar a un propietario (owner)")
+
     # Verificar permisos: admin, owner, superadmin, superuser, rrhh
     allowed_roles = ["admin", "owner", "superadmin", "superuser", "rrhh"]
     if current_user.role not in allowed_roles:
@@ -249,6 +264,15 @@ def assign_branch(
     target_user = db.query(User).filter(User.id == user_id).first()
     if not target_user:
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
+
+    # Restricciones jerárquicas de edición:
+    # 1. Un superusuario solo puede ser editado por otro superusuario
+    if target_user.role == "superuser" and current_user.role != "superuser":
+        raise HTTPException(status_code=403, detail="No tienes permiso para modificar a un superusuario")
+
+    # 2. Un owner solo puede ser editado por un owner o un superusuario
+    if target_user.role == "owner" and current_user.role not in ["owner", "superuser", "superadmin"]:
+        raise HTTPException(status_code=403, detail="No tienes permiso para modificar a un propietario (owner)")
 
     # Verificar permisos generales para el endpoint assign-branch
     allowed_roles = ["rrhh", "owner", "superuser", "superadmin", "admin", "gerente", "manager", "director"]
