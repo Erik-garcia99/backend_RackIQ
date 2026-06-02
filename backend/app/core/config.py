@@ -1,4 +1,6 @@
 import os
+from typing import Any
+from pydantic import field_validator
 from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
@@ -67,16 +69,17 @@ class Settings(BaseSettings):
     DEBUG: bool = os.getenv("DEBUG", "False").lower() == "true"
     
     # CORS - Configuración segura
-    ALLOWED_ORIGINS: list = [
+    ALLOWED_ORIGINS: Any = [
         "http://localhost:3000",
         "http://localhost:8000",
     ]
     
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        # Agregar orígenes adicionales desde variable de entorno si existen
-        if environment_origins := os.getenv("ALLOWED_ORIGINS"):
-            self.ALLOWED_ORIGINS.extend(environment_origins.split(","))
+    @field_validator("ALLOWED_ORIGINS", mode="before")
+    @classmethod
+    def parse_allowed_origins(cls, v):
+        if isinstance(v, str):
+            return [item.strip() for item in v.split(",") if item.strip()]
+        return v
 
     class Config:
         env_file = ".env"

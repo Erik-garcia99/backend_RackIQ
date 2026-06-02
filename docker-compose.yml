@@ -1,41 +1,15 @@
 version: '3.8'
 
 services:
-    basededatos:
-        image: postgres:16
-        container_name: postgres_rackiq
-        restart: always
-        environment:
-            - POSTGRES_USER=${POSTGRES_USER:-postgres}
-            - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-best4ever}
-            - POSTGRES_DB=${POSTGRES_DB:-rackiq_db}
-        ports:
-            - "5432:5432"
-        volumes:
-            - ./database:/var/lib/postgresql/data
-        networks:
-            - rackiq-network
-
-    backend:
-        build: ./backend
-        container_name: fastapi_rackiq
-        restart: always
-        ports:
-            - "8000:8000"
-        volumes:
-            - ./backend:/code
-        environment:
-            - DATABASE_URL=${DATABASE_URL:-postgresql://postgres:best4ever@basededatos:5432/rackiq_db}
-            - FIREBASE_CREDENTIALS_PATH=/code/firebase-credentials.json
-            - SECRET_KEY=${SECRET_KEY:-dev-key-change-in-production}
-            - ENVIRONMENT=${ENVIRONMENT:-development}
-            - DEBUG=${DEBUG:-True}
-        depends_on:
-            - basededatos
-        networks:
-            - rackiq-network
-
-networks:
-    rackiq-network:
-        driver: bridge
-
+  backend:
+    build: ./backend
+    container_name: fastapi_rackiq
+    restart: always
+    ports:
+      - "8000:8000"            # Mapea el puerto local al contenedor
+    volumes:
+      - ./backend:/code        # Monta el código para desarrollo en caliente
+    env_file:
+      - .env                   # Carga SUPABASE_URL, DATABASE_URL, etc.
+    environment:
+      - PORT=8000              # Puerto de escucha dentro del contenedor (debe coincidir con el mapeo)
