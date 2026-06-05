@@ -25,6 +25,13 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/rpi", tags=["rpi"])
 
+# Inicializar detector (será tolerante a fallos)
+try:
+    detector = InfluxDetector()
+except Exception as e:
+    logger.warning(f"InfluxDetector no se pudo inicializar en rpi.py: {e}")
+    detector = None
+
 
 # ============ SCHEMAS ============
 
@@ -705,10 +712,25 @@ def get_organization_esp32_nodes(
             
             shelves_data = []
             for shelf in shelves:
-                # Obtener última lectura de peso desde Supabase
-                latest_reading = db.query(WeightReading).filter(
-                    WeightReading.shelf_id == shelf.id
-                ).order_by(WeightReading.recorded_at.desc()).first()
+                # Intentar obtener peso en tiempo real de InfluxDB si está conectado
+                weight = None
+                if detector and detector.is_connected:
+                    try:
+                        weight = detector.get_current_weight(str(shelf.id), timeout_seconds=30)
+                        if weight is None:
+                            # Fallback a la última lectura en las últimas 24 horas
+                            weight = detector.get_current_weight(str(shelf.id), timeout_seconds=86400)
+                    except Exception as e:
+                        logger.debug(f"Error obteniendo peso desde InfluxDB para {shelf.id}: {e}")
+
+                # Si no obtuvimos peso de InfluxDB, fallback a la base de datos (Supabase)
+                if weight is None:
+                    latest_reading = db.query(WeightReading).filter(
+                        WeightReading.shelf_id == shelf.id
+                    ).order_by(WeightReading.recorded_at.desc()).first()
+                    current_weight = float(latest_reading.net_weight_grams) if latest_reading else 0.0
+                else:
+                    current_weight = float(weight)
                 
                 # Obtener información del producto
                 product_info = None
@@ -756,7 +778,7 @@ def get_organization_esp32_nodes(
                     "product": product_info,
                     "max_capacity_grams": float(shelf.max_capacity_grams) if shelf.max_capacity_grams else 0.0,
                     "low_stock_threshold_kg": float(shelf.low_stock_threshold_kg) if shelf.low_stock_threshold_kg else 0.0,
-                    "current_weight_grams": float(latest_reading.net_weight_grams) if latest_reading else 0.0,
+                    "current_weight_grams": current_weight,
                     "last_reading_at": shelf.last_reading_at.isoformat() if shelf.last_reading_at else None,
                 })
             
@@ -866,10 +888,25 @@ def get_branch_esp32_nodes(
         
         shelves_data = []
         for shelf in shelves:
-            # Obtener última lectura de peso desde Supabase
-            latest_reading = db.query(WeightReading).filter(
-                WeightReading.shelf_id == shelf.id
-            ).order_by(WeightReading.recorded_at.desc()).first()
+            # Intentar obtener peso en tiempo real de InfluxDB si está conectado
+            weight = None
+            if detector and detector.is_connected:
+                try:
+                    weight = detector.get_current_weight(str(shelf.id), timeout_seconds=30)
+                    if weight is None:
+                        # Fallback a la última lectura en las últimas 24 horas
+                        weight = detector.get_current_weight(str(shelf.id), timeout_seconds=86400)
+                except Exception as e:
+                    logger.debug(f"Error obteniendo peso desde InfluxDB para {shelf.id}: {e}")
+
+            # Si no obtuvimos peso de InfluxDB, fallback a la base de datos (Supabase)
+            if weight is None:
+                latest_reading = db.query(WeightReading).filter(
+                    WeightReading.shelf_id == shelf.id
+                ).order_by(WeightReading.recorded_at.desc()).first()
+                current_weight = float(latest_reading.net_weight_grams) if latest_reading else 0.0
+            else:
+                current_weight = float(weight)
             
             # Obtener información del producto
             product_info = None
@@ -919,7 +956,7 @@ def get_branch_esp32_nodes(
                 "product": product_info,
                 "max_capacity_grams": float(shelf.max_capacity_grams) if shelf.max_capacity_grams else 0.0,
                 "low_stock_threshold_kg": float(shelf.low_stock_threshold_kg) if shelf.low_stock_threshold_kg else 0.0,
-                "current_weight_grams": float(latest_reading.net_weight_grams) if latest_reading else 0.0,
+                "current_weight_grams": current_weight,
                 "last_reading_at": shelf.last_reading_at.isoformat() if shelf.last_reading_at else None,
             })
         
@@ -1053,6 +1090,60 @@ def update_shelf_name(
         "status": "updated",
         "shelf_id": str(shelf.id),
         "new_name": shelf.name
+    }
+
+
+class ShelfSettingsUpdateRequest(BaseModel):
+    name: Optional[str] = None
+    max_capacity_grams: Optional[float] = None
+    low_stock_threshold_kg: Optional[float] = None
+
+
+@router.patch("/shelf/{shelf_id}/settings")
+def update_shelf_settings(
+    shelf_id: str,
+    body: ShelfSettingsUpdateRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Actualiza la configuración de un estante (nombre, capacidad máxima, umbral de bajo stock).
+    """
+    try:
+        sh_id = uuid.UUID(shelf_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="shelf_id inválido")
+    
+    shelf = db.query(Shelf).filter(Shelf.id == sh_id).first()
+    if not shelf:
+        raise HTTPException(status_code=404, detail="Estante no encontrado")
+    
+    branch = db.query(Branch).filter(Branch.id == shelf.branch_id).first()
+    if branch.organization_id != current_user.organization_id:
+        raise HTTPException(status_code=403, detail="No tienes acceso a este estante")
+    
+    if body.name is not None:
+        new_name = body.name.strip()
+        if not new_name:
+            raise HTTPException(status_code=400, detail="El nombre no puede estar vacío")
+        shelf.name = new_name
+        
+    if body.max_capacity_grams is not None:
+        shelf.max_capacity_grams = body.max_capacity_grams
+        
+    if body.low_stock_threshold_kg is not None:
+        shelf.low_stock_threshold_kg = body.low_stock_threshold_kg
+        
+    shelf.updated_at = func.now()
+    db.commit()
+    db.refresh(shelf)
+    
+    return {
+        "status": "updated",
+        "shelf_id": str(shelf.id),
+        "name": shelf.name,
+        "max_capacity_grams": float(shelf.max_capacity_grams) if shelf.max_capacity_grams is not None else 20000.0,
+        "low_stock_threshold_kg": float(shelf.low_stock_threshold_kg) if shelf.low_stock_threshold_kg is not None else None
     }
 
 
@@ -1282,6 +1373,16 @@ def assign_product_to_shelf(
     except:
         umbral_kg = 0.0
     
+    try:
+        u_cost = float(body.get("unit_cost", 0.0))
+    except (ValueError, TypeError):
+        u_cost = 0.0
+
+    try:
+        u_price = float(body.get("unit_price", 0.0))
+    except (ValueError, TypeError):
+        u_price = 0.0
+    
     # 1. Crear producto
     import random
     sku = f"SKU-{random.randint(1000, 99999)}"
@@ -1290,7 +1391,11 @@ def assign_product_to_shelf(
         branch_id=shelf.branch_id,
         name=nombre,
         sku=sku,
-        unit_weight_grams=peso_gramos
+        unit_weight_grams=peso_gramos,
+        unit_cost=u_cost,
+        unit_price=u_price,
+        cost_price=u_cost,
+        sale_price=u_price
     )
     db.add(new_product)
     db.flush() # Para obtener su id
@@ -1314,7 +1419,15 @@ def assign_product_to_shelf(
     # 3. Asignar producto al estante y configurar inventario
     shelf.product_id = new_product.id
     shelf.low_stock_threshold_kg = umbral_kg
-    shelf.max_capacity_grams = 20000.0
+    
+    max_cap = body.get("max_capacity_grams")
+    if max_cap is not None:
+        try:
+            shelf.max_capacity_grams = float(max_cap)
+        except (ValueError, TypeError):
+            shelf.max_capacity_grams = 20000.0
+    else:
+        shelf.max_capacity_grams = 20000.0
     # Si autostock está activado en tu UI, podrías asignarlo a alert_mode: "autostock" o similar
     shelf.updated_at = func.now()
 
@@ -1366,13 +1479,17 @@ def update_product(
 
     if "unit_cost" in body and body["unit_cost"] is not None:
         try:
-            product.unit_cost = float(body["unit_cost"])
+            val = float(body["unit_cost"])
+            product.unit_cost = val
+            product.cost_price = val
         except (ValueError, TypeError):
             raise HTTPException(status_code=400, detail="unit_cost debe ser un número")
 
     if "unit_price" in body and body["unit_price"] is not None:
         try:
-            product.unit_price = float(body["unit_price"])
+            val = float(body["unit_price"])
+            product.unit_price = val
+            product.sale_price = val
         except (ValueError, TypeError):
             raise HTTPException(status_code=400, detail="unit_price debe ser un número")
 
@@ -1387,6 +1504,8 @@ def update_product(
         "unit_weight_grams": float(product.unit_weight_grams) if product.unit_weight_grams else None,
         "sku": product.sku,
         "category": product.category,
+        "unit_cost": float(product.unit_cost) if product.unit_cost else 0.0,
+        "unit_price": float(product.unit_price) if product.unit_price else 0.0,
     }
 
 
@@ -1559,6 +1678,8 @@ def save_calibration_result(
     ).order_by(PendingCommand.created_at.desc()).first()
 
     if cmd:
+        if cmd.command_type == "scale" and cmd.reference_weight_kg and shelf.product:
+            shelf.product.unit_weight_grams = float(cmd.reference_weight_kg) * 1000
         cmd.status = "executed"
         cmd.executed_at = func.now()
         db.commit()

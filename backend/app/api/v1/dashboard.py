@@ -9,10 +9,15 @@ from app.services.dashboard import DashboardService
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 
 @router.get("/{branch_id}/stats", response_model=DashboardStatsResponse)
-def get_dashboard_stats(branch_id: str, db: Session = Depends(get_db)):
+def get_dashboard_stats(
+    branch_id: str,
+    metric_type: str = "sales",
+    time_range: str = "7d",
+    db: Session = Depends(get_db)
+):
     """
     Obtiene las estadísticas del dashboard para una sucursal.
     Si no hay datos, retorna valores por defecto ($0, 0, etc.)
     """
-    stats = DashboardService.get_branch_stats(branch_id, db)
+    stats = DashboardService.get_branch_stats(branch_id, db, metric_type=metric_type, time_range=time_range)
     return stats

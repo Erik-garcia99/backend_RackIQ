@@ -34,7 +34,8 @@ class DashboardStatsResponse(BaseModel):
     sales_last_7_days: List[dict] = []
     daily_sales_data: List[dict] = []
     margins: dict = {}
-    # NUVOS CAMPOS PARA LAS ALERTAS Y VISTA GLOBAL
+    # NUEVOS CAMPOS PARA LAS ALERTAS Y VISTA GLOBAL
     alerts: List[dict] = [] 
     branch_statuses: List[dict] = []
+    is_demo: bool = False
 

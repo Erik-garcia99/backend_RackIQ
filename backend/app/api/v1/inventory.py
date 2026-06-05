@@ -48,10 +48,10 @@ async def get_branch_nodes(
     - Status (online/offline si InfluxDB está disponible)
     """
     try:
-        # Obtener todos los nodos de la sucursal
+        # Obtener todos los nodos de la sucursal haciendo join con Gateway
         nodes = db.query(Esp32Node)\
-            .filter(Esp32Node.branch_id == branch_id)\
-            .filter(Esp32Node.is_active == True)\
+            .join(Gateway, Esp32Node.gateway_id == Gateway.id)\
+            .filter(Gateway.branch_id == branch_id)\
             .all()
         
         if not nodes:
@@ -179,30 +179,43 @@ async def get_branch_shelves(
             # Intentar obtener datos de InfluxDB si está disponible
             if detector and detector.is_connected:
                 try:
-                    # Obtener peso actual
+                    # Obtener peso actual en tiempo real (últimos 30 segundos)
                     weight = detector.get_current_weight(str(shelf.id), timeout_seconds=30)
                     
+                    # Fallback: si está estable y no envió peso en los últimos 30s,
+                    # obtener la última lectura conocida (últimas 24 horas)
+                    if weight is None:
+                        weight = detector.get_current_weight(str(shelf.id), timeout_seconds=86400)
+                    
                     if weight is not None and shelf.product and shelf.product.unit_weight_grams:
-                        # Calcular unidades
-                        units_now = int(weight / float(shelf.product.unit_weight_grams))
-                        # TODO: Usar last_recorded_units cuando exista en BD
-                        units_before = 0  # shelf.last_recorded_units or 0
+                        # Calcular unidades actuales según el peso medido
+                        unit_weight = float(shelf.product.unit_weight_grams)
+                        units_now = int(weight / unit_weight) if unit_weight > 0 else 0
                         
-                        shelf_result["status"] = "online"
+                        # Unidades registradas en base de datos como referencia
+                        units_before = shelf.product.quantity_on_hand or 0
+                        
+                        # Determinar estado de conexión en vivo a nivel de nodo/sensor
+                        is_node_online = shelf.esp32_node.is_online if shelf.esp32_node else False
+                        shelf_result["status"] = "online" if is_node_online else "offline"
+                        
                         shelf_result["metrics"] = {
                             "current_weight_grams": weight,
                             "units_now": units_now,
                             "units_before": units_before,
-                            "units_removed": units_before - units_now
+                            "units_removed": max(0, units_before - units_now)
                         }
                     else:
-                        shelf_result["status"] = "offline"
+                        is_node_online = shelf.esp32_node.is_online if shelf.esp32_node else False
+                        shelf_result["status"] = "online" if is_node_online else "offline"
                 
                 except Exception as e:
                     logger.debug(f"Error obteniendo datos de InfluxDB para {shelf.id}: {e}")
                     shelf_result["status"] = "offline"
             else:
-                shelf_result["status"] = "offline"
+                # Si no hay detector, usar el estado del nodo guardado en BD
+                is_node_online = shelf.esp32_node.is_online if shelf.esp32_node else False
+                shelf_result["status"] = "online" if is_node_online else "offline"
             
             result_shelves.append(shelf_result)
         

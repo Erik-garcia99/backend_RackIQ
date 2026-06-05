@@ -23,6 +23,8 @@ class Product(Base):
     
     unit_cost = Column(Float, nullable=False, default=0.0)  # Costo unitario
     unit_price = Column(Float, nullable=False, default=0.0)  # Precio de venta
+    cost_price = Column(Float, nullable=False, default=0.0)  # Sincronizado con unit_cost
+    sale_price = Column(Float, nullable=False, default=0.0)  # Sincronizado con unit_price
     
     quantity_on_hand = Column(Integer, nullable=False, default=0)  # Stock actual
     reorder_level = Column(Integer, nullable=False, default=10)  # Nivel de reorden

@@ -78,8 +78,9 @@ class InfluxDetector:
             
             if tables and len(tables) > 0:
                 for record in tables[0].records:
-                    if record.field == "net_weight":
-                        weight = float(record.value)
+                    field_name = record.values.get("_field") or (record.get_field() if hasattr(record, "get_field") else None)
+                    if field_name == "net_weight":
+                        weight = float(record.values.get("_value") or (record.get_value() if hasattr(record, "get_value") else 0.0))
                         logger.debug(f"[InfluxDetector] Peso de {shelf_id}: {weight}g")
                         return weight
             
